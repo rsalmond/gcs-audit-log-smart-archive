@@ -4,10 +4,12 @@ from google.cloud import bigquery
 from google.cloud import storage
 from google.api_core.exceptions import NotFound
 from datetime import datetime, timezone
+from dateutil import parser
 
 config = {
     "CONFIG_FILE_PATH": "./config.cfg"
 }
+
 
 def load_config():
     """
@@ -15,7 +17,11 @@ def load_config():
     """
     config_file = open(config["CONFIG_FILE_PATH"], "r")
     for line in config_file:
-        k, v = line.split('=')
+        tokens = line.split('=')
+        if len(tokens) != 2:
+            print("Error parsing config tokens: %s" % tokens)
+            continue
+        k, v = tokens
         config[k.strip()] = v.strip()
     for required in [
         'PROJECT',
@@ -24,7 +30,7 @@ def load_config():
             'NEW_STORAGE_CLASS']:
         if required not in config.keys() or config[required] is "CONFIGURE_ME":
             print('Missing required config item: {}'.format(required))
-            sys.exit(1)
+            exit(1)
 
 
 def initialize_moved_objects_table():
@@ -116,7 +122,7 @@ def evaluate_objects(audit_log):
     for row in audit_log:
         timedelta = datetime.now(tz=timezone.utc) - row.lastAccess
         bucket_name, object_name = get_bucket_and_path(row.resourceName)
-        if timedelta.seconds > int(config['DAYS_THRESHOLD']):
+        if timedelta.days > int(config['DAYS_THRESHOLD']):
             print("/".join(["gs:/",
                             bucket_name,
                             object_name]),
@@ -176,14 +182,44 @@ def get_gcs_client():
     return clients['gcs']
 
 
+def avoid_infinite_retries(data, context):
+    """Background Cloud Function that only executes within a certain
+    time period after the triggering event.
+
+    Args:
+        data (dict): The event payload.
+        context (google.cloud.functions.Context): The event metadata.
+    Returns:
+        None; output is written to Stackdriver Logging
+    """
+    if data is None or context is None:
+        # desktop run
+        return
+
+    timestamp = context.timestamp
+
+    event_time = parser.parse(timestamp)
+    event_age = (datetime.now(timezone.utc) - event_time).total_seconds()
+    event_age_ms = event_age * 1000
+
+    # Ignore events that are too old
+    max_age_ms = 10000
+    if event_age_ms > max_age_ms:
+        print('Event timeout. Dropped {} (age {}ms)'.format(
+            context.event_id, event_age_ms))
+        exit(1)
+
+
 def archive_cold_objects(data, context):
+    avoid_infinite_retries(data, context)
     print("Loading config.")
     load_config()
     print("Initializing moved objects table (if not found).")
     initialize_moved_objects_table()
     print("Getting access log, except for already moved objects.")
     audit_log = query_access_table()
-    print("Evaluating accessed objects for rewriting to {}.".format(config['NEW_STORAGE_CLASS']))
+    print("Evaluating accessed objects for rewriting to {}.".format(
+        config['NEW_STORAGE_CLASS']))
     evaluate_objects(audit_log)
     print("Done.")
     return "Done."
