@@ -180,8 +180,8 @@ def get_gcs_client():
     return clients['gcs']
 
 
-def avoid_infinite_retries(data, context):
-    """Background Cloud Function that only executes within a certain
+def event_is_fresh(data, context):
+    """Ensure a background Cloud Function only executes within a certain
     time period after the triggering event.
 
     Args:
@@ -190,9 +190,9 @@ def avoid_infinite_retries(data, context):
     Returns:
         None; output is written to Stackdriver Logging
     """
-    if data is None or context is None:
+    if data is None:
         # desktop run
-        return
+        return True
 
     timestamp = context.timestamp
 
@@ -203,24 +203,24 @@ def avoid_infinite_retries(data, context):
     # Ignore events that are too old
     max_age_ms = 10000
     if event_age_ms > max_age_ms:
-        print('Event timeout. Dropped {} (age {}ms)'.format(
+        print('Event timeout. Dropping {} (age {}ms)'.format(
             context.event_id, event_age_ms))
-        exit(0)
+        return False
+    return True
 
 
 def archive_cold_objects(data, context):
-    avoid_infinite_retries(data, context)
-    print("Loading config.")
-    load_config()
-    print("Initializing moved objects table (if not found).")
-    initialize_moved_objects_table()
-    print("Getting access log, except for already moved objects.")
-    audit_log = query_access_table()
-    print("Evaluating accessed objects for rewriting to {}.".format(
-        config['NEW_STORAGE_CLASS']))
-    evaluate_objects(audit_log)
-    print("Done.")
-    return "Done."
+    if event_is_fresh(data, context):
+        print("Loading config.")
+        load_config()
+        print("Initializing moved objects table (if not found).")
+        initialize_moved_objects_table()
+        print("Getting access log, except for already moved objects.")
+        audit_log = query_access_table()
+        print("Evaluating accessed objects for rewriting to {}.".format(
+            config['NEW_STORAGE_CLASS']))
+        evaluate_objects(audit_log)
+        print("Done.")
 
 
 if __name__ == '__main__':
