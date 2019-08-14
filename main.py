@@ -122,11 +122,10 @@ def evaluate_objects(audit_log):
     for row in audit_log:
         timedelta = datetime.now(tz=timezone.utc) - row.lastAccess
         bucket_name, object_name = get_bucket_and_path(row.resourceName)
-        if timedelta.days > int(config['DAYS_THRESHOLD']):
-            print("/".join(["gs:/",
-                            bucket_name,
-                            object_name]),
-                  row.lastAccess,
+        object_path = "/".join(["gs:/", bucket_name, object_name])
+        if timedelta.days >= int(config['DAYS_THRESHOLD']):
+            print(object_path,
+                  row.lastAccess, "difference of {} ".format(timedelta),
                   "More than {} day(s) ago".format(config['DAYS_THRESHOLD']))
             gcs = get_gcs_client()
             bucket = storage.bucket.Bucket(gcs, name=bucket_name)
@@ -135,13 +134,12 @@ def evaluate_objects(audit_log):
                 blob.update_storage_class(config['NEW_STORAGE_CLASS'])
                 print("\tRewrote to: {}".format(config['NEW_STORAGE_CLASS']))
                 insert_object_into_moved_objects(row.resourceName)
+                print("\tStored object archive status.")
             except NotFound:
                 print("Skipping, this object seems to have been deleted.")
         else:
-            print("/".join(["gs:/",
-                            bucket_name,
-                            object_name]),
-                  row.lastAccess,
+            print(object_path,
+                  row.lastAccess, "difference of {} ".format(timedelta),
                   "Less than {} day(s) ago".format(config['DAYS_THRESHOLD']))
 
 
@@ -207,7 +205,7 @@ def avoid_infinite_retries(data, context):
     if event_age_ms > max_age_ms:
         print('Event timeout. Dropped {} (age {}ms)'.format(
             context.event_id, event_age_ms))
-        exit(1)
+        exit(0)
 
 
 def archive_cold_objects(data, context):
