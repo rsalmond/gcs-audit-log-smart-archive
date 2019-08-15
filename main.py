@@ -5,6 +5,7 @@ from google.cloud import storage
 from google.api_core.exceptions import NotFound
 from datetime import datetime, timezone
 from dateutil import parser
+from concurrent.futures import ThreadPoolExecutor
 
 config = {
     "CONFIG_FILE_PATH": "./config.cfg"
@@ -103,6 +104,7 @@ def insert_object_into_moved_objects(resource_name):
     """
     bq = get_bq_client()
 
+    # TODO: configurable?
     moved_objects_table = "`{}.{}.objects_moved_to_{}`".format(
         config['PROJECT'], config['DATASET_NAME'], config['NEW_STORAGE_CLASS'])
 
@@ -119,38 +121,54 @@ def evaluate_objects(audit_log):
     Arguments:
         audit_log {google.cloud.bigquery.table.RowIterator} -- The result set of a query of the audit log table, with the columns `resourceName` and `lastAccess`.
     """
+    executor = ThreadPoolExecutor(max_workers=16)
+
+    def _archive_object(row, bucket_name, object_name, object_path):
+        gcs = get_gcs_client()
+        bucket = storage.bucket.Bucket(gcs, name=bucket_name)
+        try:
+            blob = storage.blob.Blob(object_name, bucket)
+            blob.update_storage_class(config['NEW_STORAGE_CLASS'])
+            print("\tRewrote {} to: {}".format(
+                object_path, config['NEW_STORAGE_CLASS']))
+            insert_object_into_moved_objects(row.resourceName)
+            print("\tStored {} object archive status.".format(object_path))
+        except NotFound:
+            print("Skipping {} :: this object seems to have been deleted.".format(
+                object_path))
+
     for row in audit_log:
         timedelta = datetime.now(tz=timezone.utc) - row.lastAccess
-        bucket_name, object_name = get_bucket_and_path(row.resourceName)
+        bucket_name, object_name = get_bucket_and_object(row.resourceName)
         object_path = "/".join(["gs:/", bucket_name, object_name])
         if timedelta.days >= int(config['DAYS_THRESHOLD']):
-            print(object_path,
-                  row.lastAccess, "difference of {} ".format(timedelta),
-                  "More than {} day(s) ago".format(config['DAYS_THRESHOLD']))
-            gcs = get_gcs_client()
-            bucket = storage.bucket.Bucket(gcs, name=bucket_name)
-            try:
-                blob = storage.blob.Blob(object_name, bucket)
-                blob.update_storage_class(config['NEW_STORAGE_CLASS'])
-                print("\tRewrote to: {}".format(config['NEW_STORAGE_CLASS']))
-                insert_object_into_moved_objects(row.resourceName)
-                print("\tStored object archive status.")
-            except NotFound:
-                print("Skipping, this object seems to have been deleted.")
+            print(object_path, "last accessed {} ago, greater than {} day(s) ago".format(
+                timedelta, config['DAYS_THRESHOLD']))
+            executor.submit(_archive_object, row, bucket_name,
+                            object_name, object_path)
         else:
-            print(object_path,
-                  row.lastAccess, "difference of {} ".format(timedelta),
-                  "Less than {} day(s) ago".format(config['DAYS_THRESHOLD']))
+            print(object_path, "last accessed {} ago, less than {} day(s) ago".format(
+                timedelta, config['DAYS_THRESHOLD']))
 
 
-def get_bucket_and_path(resource_name):
+def get_bucket_and_object(resource_name):
     """Given an audit log resourceName, parse out the bucket name and object path within the bucket.
 
     Returns:
-        (str, str) -- ([bucket name], [object path])
+        (str, str) -- ([bucket name], [object name])
     """
     pathparts = resource_name.split("buckets/", 1)[1].split("/", 1)
-    return (pathparts[0], pathparts[1].split("objects/", 1)[1])
+
+    bucket_name = pathparts[0]
+    # This is used solely to clean up the inconsistent object_name
+    # TODO: Can the inconsistency be resolved further up the stack? Where is it originating?
+    bucket_path = "gs://" + bucket_name + "/"
+
+    object_name = pathparts[1].split("objects/", 1)[1]
+    object_name = object_name if not object_name.startswith(
+        bucket_path) else object_name.replace(bucket_path, "")
+
+    return (bucket_name, object_name)
 
 
 clients = {}
@@ -201,6 +219,7 @@ def event_is_fresh(data, context):
     event_age_ms = event_age * 1000
 
     # Ignore events that are too old
+    # TODO: Should this be configurable?
     max_age_ms = 10000
     if event_age_ms > max_age_ms:
         print('Event timeout. Dropping {} (age {}ms)'.format(
