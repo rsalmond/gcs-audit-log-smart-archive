@@ -84,7 +84,6 @@ step_set_up_bq_log_sink:
     # stash sink info
 	gcloud logging sinks describe test_sink --format json > /tmp/sinkinfo
 	cat /tmp/sinkinfo | jq -r .writerIdentity | awk '{split($$0,arr,":"); print arr[2]}' > /tmp/logwriteridentity
-	cat /tmp/sinkinfo | jq -r .destination > /tmp/logdestination
 	@echo
 
 	# modify dataset access info
@@ -96,7 +95,7 @@ step_set_up_bq_log_sink:
 	@echo
 
 	@$(call MESSAGE, Success!) 
-	@rm /tmp/dsinfo /tmp/sinkinfo /tmp/logwriteridentity /tmp/logdestination /tmp/dsinfo_patched
+	@rm /tmp/dsinfo /tmp/sinkinfo /tmp/logwriteridentity /tmp/dsinfo_patched
 	@touch step_set_up_bq_log_sink
 
 step_set_up_cloud_scheduler:
