@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from sys import exit
-from atexit import register
+from atexit import register, unregister
 from google.cloud import bigquery
 from google.cloud import storage
 from google.api_core.exceptions import NotFound, BadRequest
@@ -171,14 +171,18 @@ def evaluate_objects(audit_log):
 
 
     with ThreadPoolExecutor(max_workers=8) as executor:
-        # shutdown hooks. these are registered on a stack so they run LIFO
-        # shutdown executor if we get a sigterm
-        register(lambda : executor.shutdown())
-        # ensure we close the buffer to BQ if we get a sigterm
-        register(lambda : moved_objects.close())
         # start BQ stream
         stream_future = executor.submit(moved_objects_insert_stream)
         archive_futures = []
+
+        def cleanup():
+            # terminate the BQ stream
+            moved_objects.close()
+            executor.shutdown()
+            print(stream_future.result())
+        # shutdown hook for cleanup in case we get a sigterm
+        register(cleanup)
+
         # evaluate, archive and record
         for row in audit_log:
             timedelta = datetime.now(tz=timezone.utc) - row.lastAccess
@@ -196,9 +200,10 @@ def evaluate_objects(audit_log):
         # print results as they come
         for f in as_completed(archive_futures):
             print(f.result())
-        # terminate the BQ stream
-        moved_objects.close()
-        print(stream_future.result())
+
+        # normal cleanup
+        unregister(cleanup)
+        cleanup()
 
 
 def get_bucket_and_object(resource_name):
