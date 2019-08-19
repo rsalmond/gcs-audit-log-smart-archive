@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from sys import exit
+from atexit import register
 from google.cloud import bigquery
 from google.cloud import storage
 from google.api_core.exceptions import NotFound, BadRequest
@@ -150,6 +151,7 @@ def evaluate_objects(audit_log):
         audit_log {google.cloud.bigquery.table.RowIterator} -- The result set of a query of the audit log table, with the columns `resourceName` and `lastAccess`.
     """
 
+    # This function will be run o(objects) times in the executor pool
     def _archive_object(row, bucket_name, object_name, object_path):
         gcs = get_gcs_client()
         bucket = storage.bucket.Bucket(gcs, name=bucket_name)
@@ -167,9 +169,17 @@ def evaluate_objects(audit_log):
                 object_path))
         return '\n'.join(output)
 
+
     with ThreadPoolExecutor(max_workers=8) as executor:
+        # shutdown hooks. these are registered on a stack so they run LIFO
+        # shutdown executor if we get a sigterm
+        register(lambda : executor.shutdown())
+        # ensure we close the buffer to BQ if we get a sigterm
+        register(lambda : moved_objects.close())
+        # start BQ stream
         stream_future = executor.submit(moved_objects_insert_stream)
         archive_futures = []
+        # evaluate, archive and record
         for row in audit_log:
             timedelta = datetime.now(tz=timezone.utc) - row.lastAccess
             bucket_name, object_name = get_bucket_and_object(row.resourceName)
@@ -183,8 +193,10 @@ def evaluate_objects(audit_log):
             else:
                 print(object_path, "last accessed {} ago, less than {} seconds(s) ago".format(
                     timedelta, config['SECONDS_THRESHOLD']))
+        # print results as they come
         for f in as_completed(archive_futures):
             print(f.result())
+        # terminate the BQ stream
         moved_objects.close()
         print(stream_future.result())
 
