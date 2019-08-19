@@ -2,10 +2,15 @@
 from sys import exit
 from google.cloud import bigquery
 from google.cloud import storage
-from google.api_core.exceptions import NotFound
+from google.api_core.exceptions import NotFound, BadRequest
 from datetime import datetime, timezone
 from dateutil import parser
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from queue import Queue
+import warnings
+warnings.filterwarnings(
+    "ignore", "Your application has authenticated using end user credentials")
+
 
 config = {
     "CONFIG_FILE_PATH": "./config.cfg"
@@ -89,7 +94,21 @@ def query_access_table():
     return query_job.result()
 
 
-def insert_object_into_moved_objects(resource_name):
+class IterableQueue(Queue):
+
+    _sentinel = object()
+
+    def __iter__(self):
+        return iter(self.get, self._sentinel)
+
+    def close(self):
+        self.put(self._sentinel)
+
+
+moved_objects = IterableQueue()
+
+
+def moved_objects_insert_stream():
     """Insert the resource name of an object into the table of moved objects for exclusion later.
 
     Arguments:
@@ -105,14 +124,18 @@ def insert_object_into_moved_objects(resource_name):
     bq = get_bq_client()
 
     # TODO: configurable?
-    moved_objects_table = "`{}.{}.objects_moved_to_{}`".format(
+    moved_objects_table = "{}.{}.objects_moved_to_{}".format(
         config['PROJECT'], config['DATASET_NAME'], config['NEW_STORAGE_CLASS'])
 
-    querytext = "INSERT INTO {} VALUES (\"{}\")".format(
-        moved_objects_table, resource_name)
-
-    query_job = bq.query(querytext)
-    return query_job.result()
+    insert_errors = []
+    print("Starting BQ insert stream...")
+    try:
+        insert_errors = bq.insert_rows_json(moved_objects_table, moved_objects)
+    except BadRequest as e:
+        if not e.message.endswith("No rows present in the request."):
+            raise e
+    print("Finished BQ insert stream...")
+    return ("BQ Errors:\t{}".format(insert_errors))
 
 
 def evaluate_objects(audit_log):
@@ -121,34 +144,44 @@ def evaluate_objects(audit_log):
     Arguments:
         audit_log {google.cloud.bigquery.table.RowIterator} -- The result set of a query of the audit log table, with the columns `resourceName` and `lastAccess`.
     """
-    executor = ThreadPoolExecutor(max_workers=16)
 
     def _archive_object(row, bucket_name, object_name, object_path):
         gcs = get_gcs_client()
         bucket = storage.bucket.Bucket(gcs, name=bucket_name)
+        output = []
         try:
             blob = storage.blob.Blob(object_name, bucket)
             blob.update_storage_class(config['NEW_STORAGE_CLASS'])
-            print("\tRewrote {} to: {}".format(
+            output.append("\tRewrote {} to: {}".format(
                 object_path, config['NEW_STORAGE_CLASS']))
-            insert_object_into_moved_objects(row.resourceName)
-            print("\tStored {} object archive status.".format(object_path))
+            moved_objects.put({"resourceName": row.resourceName}, True)
+            output.append(
+                "\tStored {} object archive status.".format(object_path))
         except NotFound:
-            print("Skipping {} :: this object seems to have been deleted.".format(
+            output.append("Skipping {} :: this object seems to have been deleted.".format(
                 object_path))
+        return '\n'.join(output)
 
-    for row in audit_log:
-        timedelta = datetime.now(tz=timezone.utc) - row.lastAccess
-        bucket_name, object_name = get_bucket_and_object(row.resourceName)
-        object_path = "/".join(["gs:/", bucket_name, object_name])
-        if timedelta.days >= int(config['DAYS_THRESHOLD']):
-            print(object_path, "last accessed {} ago, greater than {} day(s) ago".format(
-                timedelta, config['DAYS_THRESHOLD']))
-            executor.submit(_archive_object, row, bucket_name,
-                            object_name, object_path)
-        else:
-            print(object_path, "last accessed {} ago, less than {} day(s) ago".format(
-                timedelta, config['DAYS_THRESHOLD']))
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        stream_future = executor.submit(moved_objects_insert_stream)
+        archive_futures = []
+        for row in audit_log:
+            timedelta = datetime.now(tz=timezone.utc) - row.lastAccess
+            bucket_name, object_name = get_bucket_and_object(row.resourceName)
+            object_path = "/".join(["gs:/", bucket_name, object_name])
+            if timedelta.days >= int(config['DAYS_THRESHOLD']):
+                print(object_path, "last accessed {} ago, greater than {} day(s) ago".format(
+                    timedelta, config['DAYS_THRESHOLD']))
+                archive_futures.append(
+                    executor.submit(_archive_object, row, bucket_name,
+                                    object_name, object_path))
+            else:
+                print(object_path, "last accessed {} ago, less than {} day(s) ago".format(
+                    timedelta, config['DAYS_THRESHOLD']))
+        for f in as_completed(archive_futures):
+            print(f.result())
+        moved_objects.close()
+        print(stream_future.result())
 
 
 def get_bucket_and_object(resource_name):
