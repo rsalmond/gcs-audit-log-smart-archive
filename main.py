@@ -88,7 +88,7 @@ def query_access_table():
 
     querytext = """
         SELECT
-        a.protopayload_auditlog.resourceName  AS resourceName,
+        REGEXP_REPLACE(a.protopayload_auditlog.resourceName, "gs://.*/", "") AS resourceName,
         MAX(a.timestamp)                      AS lastAccess
         FROM {0} as a
         LEFT JOIN {1} as b ON a.protopayload_auditlog.resourceName = b.resourceName
@@ -161,7 +161,7 @@ def evaluate_objects(audit_log):
                 object_path, config['NEW_STORAGE_CLASS']))
             moved_objects.put({"resourceName": row.resourceName}, True)
             output.append(
-                "\tStored {} object archive status.".format(object_path))
+                "\tStreaming {} object archive status to BQ.".format(object_path))
         except NotFound:
             output.append("Skipping {} :: this object seems to have been deleted.".format(
                 object_path))
@@ -198,13 +198,7 @@ def get_bucket_and_object(resource_name):
     pathparts = resource_name.split("buckets/", 1)[1].split("/", 1)
 
     bucket_name = pathparts[0]
-    # This is used solely to clean up the inconsistent object_name
-    # TODO: Can the inconsistency be resolved further up the stack? Where is it originating?
-    bucket_path = "gs://" + bucket_name + "/"
-
     object_name = pathparts[1].split("objects/", 1)[1]
-    object_name = object_name if not object_name.startswith(
-        bucket_path) else object_name.replace(bucket_path, "")
 
     return (bucket_name, object_name)
 
