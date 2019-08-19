@@ -174,14 +174,14 @@ def evaluate_objects(audit_log):
             timedelta = datetime.now(tz=timezone.utc) - row.lastAccess
             bucket_name, object_name = get_bucket_and_object(row.resourceName)
             object_path = "/".join(["gs:/", bucket_name, object_name])
-            if timedelta.days >= int(config['SECONDS_THRESHOLD']):
-                print(object_path, "last accessed {} ago, greater than {} day(s) ago".format(
+            if timedelta.seconds >= int(config['SECONDS_THRESHOLD']):
+                print(object_path, "last accessed {} ago, greater than {} seconds(s) ago".format(
                     timedelta, config['SECONDS_THRESHOLD']))
                 archive_futures.append(
                     executor.submit(_archive_object, row, bucket_name,
                                     object_name, object_path))
             else:
-                print(object_path, "last accessed {} ago, less than {} day(s) ago".format(
+                print(object_path, "last accessed {} ago, less than {} seconds(s) ago".format(
                     timedelta, config['SECONDS_THRESHOLD']))
         for f in as_completed(archive_futures):
             print(f.result())
