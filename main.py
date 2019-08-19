@@ -23,16 +23,21 @@ def load_config():
     """
     config_file = open(config["CONFIG_FILE_PATH"], "r")
     for line in config_file:
+        # ignore comments
+        if line.startswith('#'):
+            continue
+        # parse the line
         tokens = line.split('=')
         if len(tokens) != 2:
             print("Error parsing config tokens: %s" % tokens)
             continue
         k, v = tokens
         config[k.strip()] = v.strip()
+    # quick validation
     for required in [
         'PROJECT',
         'DATASET_NAME',
-        'DAYS_THRESHOLD',
+        'SECONDS_THRESHOLD',
             'NEW_STORAGE_CLASS']:
         if required not in config.keys() or config[required] is "CONFIGURE_ME":
             print('Missing required config item: {}'.format(required))
@@ -169,15 +174,15 @@ def evaluate_objects(audit_log):
             timedelta = datetime.now(tz=timezone.utc) - row.lastAccess
             bucket_name, object_name = get_bucket_and_object(row.resourceName)
             object_path = "/".join(["gs:/", bucket_name, object_name])
-            if timedelta.days >= int(config['DAYS_THRESHOLD']):
+            if timedelta.days >= int(config['SECONDS_THRESHOLD']):
                 print(object_path, "last accessed {} ago, greater than {} day(s) ago".format(
-                    timedelta, config['DAYS_THRESHOLD']))
+                    timedelta, config['SECONDS_THRESHOLD']))
                 archive_futures.append(
                     executor.submit(_archive_object, row, bucket_name,
                                     object_name, object_path))
             else:
                 print(object_path, "last accessed {} ago, less than {} day(s) ago".format(
-                    timedelta, config['DAYS_THRESHOLD']))
+                    timedelta, config['SECONDS_THRESHOLD']))
         for f in as_completed(archive_futures):
             print(f.result())
         moved_objects.close()
