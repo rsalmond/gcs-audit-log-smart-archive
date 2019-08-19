@@ -87,15 +87,13 @@ def query_access_table():
     moved_objects_table = "`{}.{}.objects_moved_to_{}`".format(
         config['PROJECT'], config['DATASET_NAME'], config['NEW_STORAGE_CLASS'])
 
-    querytext = """
-        SELECT
-        REGEXP_REPLACE(a.protopayload_auditlog.resourceName, "gs://.*/", "") AS resourceName,
-        MAX(a.timestamp)                      AS lastAccess
-        FROM {0} as a
-        LEFT JOIN {1} as b ON REGEXP_REPLACE(a.protopayload_auditlog.resourceName, "gs://.*/", "") = b.resourceName
-        WHERE b.resourceName IS NULL
-        GROUP BY resourceName
-    """.format(access_log_tables, moved_objects_table)
+    querytext = """SELECT a.resourceName, lastAccess FROM (
+    SELECT REGEXP_REPLACE(protopayload_auditlog.resourceName, "gs://.*/", "") AS resourceName,
+    MAX(timestamp) AS lastAccess FROM {0}
+    GROUP BY resourceName) 
+AS a 
+LEFT JOIN {1} as b ON a.resourceName = b.resourceName
+WHERE b.resourceName IS NULL""".format(access_log_tables, moved_objects_table)
     query_job = bq.query(querytext)
     return query_job.result()
 
@@ -168,7 +166,6 @@ def evaluate_objects(audit_log):
             output.append("Skipping {} :: this object seems to have been deleted.".format(
                 object_path))
         return '\n'.join(output)
-
 
     with ThreadPoolExecutor(max_workers=8) as executor:
         # start BQ stream
