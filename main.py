@@ -1,14 +1,20 @@
 #!/usr/bin/env python3
+import warnings
+from atexit import register
+from atexit import unregister
+from concurrent.futures import as_completed
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
+from datetime import timezone
+from queue import Queue
 from sys import exit
-from atexit import register, unregister
+
+from dateutil import parser
+from google.api_core.exceptions import BadRequest
+from google.api_core.exceptions import NotFound
 from google.cloud import bigquery
 from google.cloud import storage
-from google.api_core.exceptions import NotFound, BadRequest
-from datetime import datetime, timezone
-from dateutil import parser
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from queue import Queue
-import warnings
+
 warnings.filterwarnings(
     "ignore", "Your application has authenticated using end user credentials")
 
@@ -87,13 +93,15 @@ def query_access_table():
     moved_objects_table = "`{}.{}.objects_moved_to_{}`".format(
         config['PROJECT'], config['DATASET_NAME'], config['NEW_STORAGE_CLASS'])
 
-    querytext = """SELECT a.resourceName, lastAccess FROM (
-    SELECT REGEXP_REPLACE(protopayload_auditlog.resourceName, "gs://.*/", "") AS resourceName,
-    MAX(timestamp) AS lastAccess FROM {0}
-    GROUP BY resourceName) 
-AS a 
-LEFT JOIN {1} as b ON a.resourceName = b.resourceName
-WHERE b.resourceName IS NULL""".format(access_log_tables, moved_objects_table)
+    querytext = """
+    SELECT a.resourceName, lastAccess FROM (
+        SELECT REGEXP_REPLACE(protopayload_auditlog.resourceName, "gs://.*/", "") AS resourceName,
+        MAX(timestamp) AS lastAccess FROM {0}
+        GROUP BY resourceName) 
+    AS a 
+    LEFT JOIN {1} as b ON a.resourceName = b.resourceName
+    WHERE b.resourceName IS NULL
+""".format(access_log_tables, moved_objects_table)
     query_job = bq.query(querytext)
     return query_job.result()
 
