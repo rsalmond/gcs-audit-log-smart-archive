@@ -92,7 +92,7 @@ def query_access_table():
         REGEXP_REPLACE(a.protopayload_auditlog.resourceName, "gs://.*/", "") AS resourceName,
         MAX(a.timestamp)                      AS lastAccess
         FROM {0} as a
-        LEFT JOIN {1} as b ON a.protopayload_auditlog.resourceName = b.resourceName
+        LEFT JOIN {1} as b ON REGEXP_REPLACE(a.protopayload_auditlog.resourceName, "gs://.*/", "") = b.resourceName
         WHERE b.resourceName IS NULL
         GROUP BY resourceName
     """.format(access_log_tables, moved_objects_table)
