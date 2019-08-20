@@ -66,7 +66,12 @@ def initialize_moved_objects_table():
     moved_objects_table = "`{}.{}.objects_moved_to_{}`".format(
         config['PROJECT'], config['DATASET_NAME'], config['NEW_STORAGE_CLASS'])
 
-    querytext = "CREATE TABLE IF NOT EXISTS {} (resourceName STRING)".format(
+    querytext = """
+        CREATE TABLE IF NOT EXISTS {} (
+            resourceName STRING, 
+            size INT64,
+            archiveTimestamp TIMESTAMP
+        )""".format(
         moved_objects_table)
 
     query_job = bq.query(querytext)
@@ -167,7 +172,12 @@ def evaluate_objects(audit_log):
             blob.update_storage_class(config['NEW_STORAGE_CLASS'])
             output.append("\tRewrote {} to: {}".format(
                 object_path, config['NEW_STORAGE_CLASS']))
-            moved_objects.put({"resourceName": row.resourceName}, True)
+            moved_objects.put(
+                {
+                    "resourceName": row.resourceName,
+                    "size": blob.size,
+                    "archiveTimestamp": str(datetime.now(timezone.utc))
+                }, True)
             output.append(
                 "\tStreaming {} object archive status to BQ.".format(object_path))
         except NotFound:
