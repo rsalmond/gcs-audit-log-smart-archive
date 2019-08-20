@@ -6,7 +6,7 @@ SCHEDULE_CRON=$(shell cat config.cfg | grep SCHEDULE_CRON | cut -d '=' -f 2)
 FUNCTION_NAME=$(shell cat config.cfg | grep FUNCTION_NAME | cut -d '=' -f 2)
 FUNCTION_MEMORY=$(shell cat config.cfg | grep FUNCTION_MEMORY | cut -d '=' -f 2)
 
-default: step_explain step_set_up_audit_logging step_set_up_bq_log_sink step_set_up_cloud_scheduler step_set_up_cloud_function
+default: step_explain step_set_up_audit_logging step_set_up_bq_log_sink step_set_up_cloud_function step_set_up_cloud_scheduler
 
 
 CHECK_CONTINUE = \
@@ -98,8 +98,18 @@ step_set_up_bq_log_sink:
 	@rm /tmp/dsinfo /tmp/sinkinfo /tmp/logwriteridentity /tmp/dsinfo_patched
 	@touch step_set_up_bq_log_sink
 
+
+step_set_up_cloud_function:
+	@$(call MESSAGE, Next$(,) we deploy a cloud function to evaluate objects for archive when it gets a scheduled message.)
+	@$(CHECK_CONTINUE) 
+	@echo
+	# deploy function
+	gcloud functions deploy $(FUNCTION_NAME) --entry-point=archive_cold_objects --runtime python37 --trigger-topic $(SCHEDULING_TOPIC) --timeout 540s --memory $(FUNCTION_MEMORY) --max-instances 1
+	@$(call MESSAGE, Success! Run make again to deploy new code or configuration.)
+
+
 step_set_up_cloud_scheduler:
-	@$(call MESSAGE, Next$(,) we will set up a cloud scheduler job to run the archive job periodically.)
+	@$(call MESSAGE, Finally$(,) we will set up a cloud scheduler job to run the archive job periodically.)
 	@$(CHECK_CONTINUE) 
 	@echo
 	# make topic
@@ -110,10 +120,26 @@ step_set_up_cloud_scheduler:
 	@touch step_set_up_cloud_scheduler
 
 
-step_set_up_cloud_function:
-	@$(call MESSAGE, Finally$(,) we deploy a cloud function to evaluate objects for archive when it gets a scheduled message.)
+teardown:
+	@$(call MESSAGE, This will remove the smart archiver and supporting resources.)
 	@$(CHECK_CONTINUE) 
+	yes | gcloud scheduler jobs delete $(SCHEDULED_JOB_NAME)
+	yes | gcloud functions delete $(FUNCTION_NAME)
+	yes | gcloud logging sinks delete test_sink
+	yes | bq --location=US rm -r --dataset $(PROJECT):$(DATASET_NAME)
+
+	@$(call MESSAGE, If you continue$(,) audit logging for GCS will be turned off. Stop now if you use audit logging for other applications.)
+	@$(CHECK_CONTINUE) 
+	# stash the iam policy
+	gcloud projects get-iam-policy $(PROJECT) --format json \
+	| jq '. | if has("auditConfigs") then . else . += {"auditConfigs":[]} end' \
+	> /tmp/projectiampolicy
 	@echo
-	# deploy function
-	gcloud functions deploy $(FUNCTION_NAME) --entry-point=archive_cold_objects --runtime python37 --trigger-topic $(SCHEDULING_TOPIC) --timeout 540s --memory $(FUNCTION_MEMORY) --max-instances 1
-	@$(call MESSAGE, Success! Run make again to deploy new code or configuration.)
+	# patch the iam policy
+	cat /tmp/projectiampolicy | jq '.auditConfigs -= [{"service":"storage.googleapis.com","auditLogConfigs":[{"logType": "DATA_READ"},{"logType": "DATA_WRITE"}]}]' | jq '. + {"auditConfigs":.auditConfigs|unique}' > /tmp/projectiampolicy_patched
+	@echo
+	# set the iam policy to the patched one
+	gcloud projects set-iam-policy $(PROJECT) --format json /tmp/projectiampolicy_patched
+	@echo
+
+	@$(call MESSAGE, Teardown complete.)
