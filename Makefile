@@ -103,6 +103,8 @@ step_set_up_cloud_function:
 	@$(call MESSAGE, Next$(,) we deploy a cloud function to evaluate objects for archive when it gets a scheduled message.)
 	@$(CHECK_CONTINUE) 
 	@echo
+	# make topic
+	gcloud pubsub topics create $(SCHEDULING_TOPIC)
 	# deploy function
 	gcloud functions deploy $(FUNCTION_NAME) --entry-point=archive_cold_objects --runtime python37 --trigger-topic $(SCHEDULING_TOPIC) --timeout 540s --memory $(FUNCTION_MEMORY) --max-instances 1
 	@$(call MESSAGE, Success! Run make again to deploy new code or configuration.)
@@ -112,8 +114,6 @@ step_set_up_cloud_scheduler:
 	@$(call MESSAGE, Finally$(,) we will set up a cloud scheduler job to run the archive job periodically.)
 	@$(CHECK_CONTINUE) 
 	@echo
-	# make topic
-	gcloud pubsub topics create $(SCHEDULING_TOPIC)
 	# make scheduled job
 	gcloud scheduler jobs create pubsub $(SCHEDULED_JOB_NAME) --schedule=$(SCHEDULE_CRON) --topic=$(SCHEDULING_TOPIC) --message-body="Time to archive objects!"
 	@$(call MESSAGE, Success!) 
@@ -125,6 +125,7 @@ teardown:
 	@$(CHECK_CONTINUE) 
 	yes | gcloud scheduler jobs delete $(SCHEDULED_JOB_NAME)
 	yes | gcloud functions delete $(FUNCTION_NAME)
+	yes | gcloud pubsub topics delete $(SCHEDULING_TOPIC)
 	yes | gcloud logging sinks delete test_sink
 	yes | bq --location=US rm -r --dataset $(PROJECT):$(DATASET_NAME)
 
