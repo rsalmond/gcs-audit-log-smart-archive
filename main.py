@@ -145,15 +145,21 @@ def moved_objects_insert_stream():
         config['PROJECT'], config['DATASET_NAME'], config['NEW_STORAGE_CLASS'])
 
     insert_errors = []
+    batch = []
     print("Starting BQ insert stream...")
-    try:
-        insert_errors = bq.insert_rows_json(moved_objects_table, moved_objects)
-    except BadRequest as e:
-        if not e.message.endswith("No rows present in the request."):
-            raise e
-    print("Finished BQ insert stream...")
-    return ("BQ Errors:\t{}".format(insert_errors))
+    for row in moved_objects:
+        batch.append(row)
+        if len(batch) > config["BQ_BATCH_WRITE_SIZE"]:
+            try:
+                insert_errors.append(bq.insert_rows_json(moved_objects_table, batch))
+            except BadRequest as e:
+                if not e.message.endswith("No rows present in the request."):
+                    raise e
+            finally:
+                batch.clear()
 
+    print("Finished BQ insert stream...")
+    return "BQ Errors:\t{}".format(insert_errors)
 
 def evaluate_objects(audit_log):
     """Evaluates objects in the audit log to see if they should be moved to a new storage class.
