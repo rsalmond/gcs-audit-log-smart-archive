@@ -124,6 +124,16 @@ class IterableQueue(Queue):
 
 moved_objects = IterableQueue()
 
+def flatten(iterable, iter_types=(list, tuple)):
+    """Flattens nested iterables into a flat iterable.
+    """
+    for i in iterable:
+        if isinstance(i, iter_types):
+            for j in flatten(i, iter_types):
+                yield j
+        else:
+            yield i
+
 
 def moved_objects_insert_stream():
     """Insert the resource name of an object into the table of moved objects for exclusion later.
@@ -159,7 +169,7 @@ def moved_objects_insert_stream():
                 batch.clear()
 
     print("Finished BQ insert stream...")
-    return "BQ Errors:\t{}".format(insert_errors)
+    return "BQ Errors:\t{}".format([x for x in flatten(insert_errors)])
 
 def evaluate_objects(audit_log):
     """Evaluates objects in the audit log to see if they should be moved to a new storage class.
