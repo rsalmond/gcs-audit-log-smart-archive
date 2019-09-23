@@ -44,7 +44,7 @@ def load_config():
     for required in [
         'PROJECT',
         'DATASET_NAME',
-        'SECONDS_THRESHOLD',
+        'DAYS_THRESHOLD',
             'NEW_STORAGE_CLASS']:
         if required not in config.keys() or config[required] is "CONFIGURE_ME":
             print('Missing required config item: {}'.format(required))
@@ -203,15 +203,16 @@ def evaluate_objects(audit_log):
             timedelta = datetime.now(tz=timezone.utc) - row.lastAccess
             bucket_name, object_name = get_bucket_and_object(row.resourceName)
             object_path = "/".join(["gs:/", bucket_name, object_name])
-            if timedelta.seconds >= int(config['SECONDS_THRESHOLD']):
-                print(object_path, "last accessed {} ago, greater than {} seconds(s) ago".format(
-                    timedelta, config['SECONDS_THRESHOLD']))
+
+            if timedelta.days >= int(config['DAYS_THRESHOLD']):
+                print(object_path, "last accessed {} ago, greater than {} days(s) ago".format(
+                    timedelta, config['DAYS_THRESHOLD']))
                 archive_futures.append(
                     executor.submit(_archive_object, row, bucket_name,
                                     object_name, object_path))
             else:
-                print(object_path, "last accessed {} ago, less than {} seconds(s) ago".format(
-                    timedelta, config['SECONDS_THRESHOLD']))
+                print(object_path, "last accessed {} ago, less than {} days(s) ago".format(
+                    timedelta, config['DAYS_THRESHOLD']))
         # print results as they come
         for f in as_completed(archive_futures):
             print(f.result())
