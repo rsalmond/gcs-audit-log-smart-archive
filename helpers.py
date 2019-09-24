@@ -6,6 +6,8 @@ from google.api_core.exceptions import BadRequest
 from google.cloud import bigquery, storage
 
 
+config_file = getenv("SMART_ARCHIVE_CONFIG") if getenv("SMART_ARCHIVE_CONFIG") else "./config.cfg"
+
 def event_is_fresh(data, context):
     """Ensure a background Cloud Function only executes within a certain
     time period after the triggering event.
@@ -70,8 +72,9 @@ def get_bq_client():
     Returns:
         google.cloud.bigquery.Client -- A BigQuery client.
     """
+    config = load_config_file(config_file, required=["PROJECT"])
     if 'bq' not in clients:
-        bq = bigquery.Client()
+        bq = bigquery.Client(project=config["PROJECT"])
         clients['bq'] = bq
     return clients['bq']
 
@@ -82,8 +85,9 @@ def get_gcs_client():
     Returns:
         google.cloud.storage.Client -- A GCS client.
     """
+    config = load_config_file(config_file, required=["PROJECT"])
     if 'gcs' not in clients:
-        gcs = storage.Client()
+        gcs = storage.Client(project=config["PROJECT"])
         clients['gcs'] = gcs
     return clients['gcs']
 

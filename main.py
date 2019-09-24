@@ -11,13 +11,12 @@ from google.cloud import bigquery, storage
 
 from helpers import (IterableQueue, bq_insert_stream, event_is_fresh,
                      get_bq_client, get_bucket_and_object, get_gcs_client,
-                     initialize_table, load_config_file)
+                     initialize_table, config_file, load_config_file)
 
 warnings.filterwarnings(
     "ignore", "Your application has authenticated using end user credentials")
 
 
-config_file = getenv("SMART_ARCHIVE_CONFIG") if getenv("SMART_ARCHIVE_CONFIG") else "./config.cfg"
 print("Loading config: {}".format(config_file))
 config = load_config_file(config_file, required=[
     'PROJECT',
