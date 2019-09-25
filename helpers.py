@@ -55,7 +55,7 @@ def load_config_file(filepath, required=[]):
         config[k.strip()] = v.strip()
     # quick validation
     for r in required:
-        if r not in config.keys() or config[r] is "CONFIGURE_ME":
+        if r not in config.keys() or config[r] == "CONFIGURE_ME":
             print('Missing required config item: {}'.format(r))
             exit(1)
     return config
