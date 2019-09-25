@@ -142,24 +142,28 @@ def bq_insert_stream(tablename, iter_q, batch_size):
         concurrent.futures.TimeoutError –- If the job did not complete in the given timeout.
     """
     bq = get_bq_client()
-
-    insert_errors = []
-    batch = []
     print("Starting BQ insert stream to {}...".format(tablename))
+    batch = []
+
+    def flush_to_bq():
+        try:
+            insert_errors = bq.insert_rows_json(tablename, batch)
+            if insert_errors:
+                print("Insert errors! {}".format([x for x in flatten(insert_errors)]))
+        except BadRequest as e:
+            if not e.message.endswith("No rows present in the request."):
+                raise e
+        finally:
+            batch.clear()
+
     for row in iter_q:
         batch.append(row)
         if len(batch) > batch_size:
-            try:
-                insert_errors.append(
-                    bq.insert_rows_json(tablename, batch))
-            except BadRequest as e:
-                if not e.message.endswith("No rows present in the request."):
-                    raise e
-            finally:
-                batch.clear()
-    return("Finished BQ insert stream to {}.\nErrors: {}".format(
-        tablename, [x for x in flatten(insert_errors)]
-    ))
+            flush_to_bq()
+    # finally, insert the remainder
+    flush_to_bq()
+
+    print("Finished BQ insert stream to {}.".format(tablename))
 
 
 def flatten(iterable, iter_types=(list, tuple)):

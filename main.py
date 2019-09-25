@@ -17,7 +17,8 @@ warnings.filterwarnings(
     "ignore", "Your application has authenticated using end user credentials")
 
 
-config_file = getenv("SMART_ARCHIVE_CONFIG") if getenv("SMART_ARCHIVE_CONFIG") else "./default.cfg"
+config_file = getenv("SMART_ARCHIVE_CONFIG") if getenv(
+    "SMART_ARCHIVE_CONFIG") else "./default.cfg"
 print("Loading config: {}".format(config_file))
 config = load_config_file(config_file, required=[
     'PROJECT',
@@ -63,7 +64,7 @@ def initialize_excluded_objects_table():
     return initialize_table(excluded_objects_table, schema)
 
 
-moved_objects = IterableQueue()
+moved_objects = IterableQueue(maxsize=10000)
 
 
 def moved_objects_insert_stream():
@@ -85,7 +86,7 @@ def moved_objects_insert_stream():
     return bq_insert_stream(moved_objects_table, moved_objects, config["BQ_BATCH_WRITE_SIZE"])
 
 
-excluded_objects = IterableQueue()
+excluded_objects = IterableQueue(maxsize=10000)
 
 
 def excluded_objects_insert_stream():
@@ -160,11 +161,10 @@ def archive_object(resourceName, bucket_name, object_name, object_path):
     """
     gcs = get_gcs_client()
     bucket = storage.bucket.Bucket(gcs, name=bucket_name)
-    output = []
     try:
         blob = storage.blob.Blob(object_name, bucket)
         blob.update_storage_class(config['NEW_STORAGE_CLASS'])
-        output.append("\tRewrote {} to: {}".format(
+        print("{} rewritten to: {}".format(
             object_path, config['NEW_STORAGE_CLASS']))
         moved_objects.put(
             {
@@ -172,16 +172,15 @@ def archive_object(resourceName, bucket_name, object_name, object_path):
                 "size": blob.size,
                 "archiveTimestamp": str(datetime.now(timezone.utc))
             }, True)
-        output.append(
-            "\tStreaming {} object archive status to BQ.".format(object_path))
+        print(
+            "{} object archive status streaming to BQ.".format(object_path))
     except NotFound:
-        output.append("Skipping {} :: This object wasn't found. Adding to excluded objects list so it will no longer be considered.".format(
+        print("{} skipped! This object wasn't found. Adding to excluded objects list so it will no longer be considered.".format(
             object_path))
         excluded_objects.put(
             {
                 "resourceName": resourceName
             }, True)
-    return '\n'.join(output)
 
 
 def evaluate_objects(audit_log):
@@ -193,17 +192,14 @@ def evaluate_objects(audit_log):
 
     with ThreadPoolExecutor(max_workers=8) as executor:
         # start BQ stream
-        move_stream_future = executor.submit(moved_objects_insert_stream)
-        exclude_stream_future = executor.submit(excluded_objects_insert_stream)
-        archive_futures = []
+        executor.submit(moved_objects_insert_stream)
+        executor.submit(excluded_objects_insert_stream)
 
         def cleanup():
             # terminate the BQ stream
             moved_objects.close()
             excluded_objects.close()
             executor.shutdown()
-            print(move_stream_future.result())
-            print(exclude_stream_future.result())
 
         # shutdown hook for cleanup in case we get a sigterm
         register(cleanup)
@@ -217,15 +213,11 @@ def evaluate_objects(audit_log):
             if timedelta.days >= int(config['DAYS_THRESHOLD']):
                 print(object_path, "last accessed {} ago, greater than {} days(s) ago".format(
                     timedelta, config['DAYS_THRESHOLD']))
-                archive_futures.append(
-                    executor.submit(archive_object, row.resourceName, bucket_name, object_name, object_path))
+                executor.submit(archive_object, row.resourceName,
+                                bucket_name, object_name, object_path)
             else:
                 print(object_path, "last accessed {} ago, less than {} days(s) ago".format(
                     timedelta, config['DAYS_THRESHOLD']))
-
-        # print results as they come
-        for f in as_completed(archive_futures):
-            print(f.result())
 
         # normal cleanup
         unregister(cleanup)
