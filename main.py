@@ -17,7 +17,7 @@ warnings.filterwarnings(
     "ignore", "Your application has authenticated using end user credentials")
 
 
-config_file = getenv("SMART_ARCHIVE_CONFIG") if getenv("SMART_ARCHIVE_CONFIG") else "./config.cfg"
+config_file = getenv("SMART_ARCHIVE_CONFIG") if getenv("SMART_ARCHIVE_CONFIG") else "./default.cfg"
 print("Loading config: {}".format(config_file))
 config = load_config_file(config_file, required=[
     'PROJECT',
