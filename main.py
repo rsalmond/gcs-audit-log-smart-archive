@@ -64,7 +64,7 @@ def initialize_excluded_objects_table():
     return initialize_table(config, excluded_objects_table, schema)
 
 
-moved_objects = IterableQueue(maxsize=10000)
+moved_objects = IterableQueue(maxsize=3000)
 
 
 def moved_objects_insert_stream():
@@ -86,7 +86,7 @@ def moved_objects_insert_stream():
     return bq_insert_stream(config, moved_objects_table, moved_objects, config["BQ_BATCH_WRITE_SIZE"])
 
 
-excluded_objects = IterableQueue(maxsize=10000)
+excluded_objects = IterableQueue(maxsize=3000)
 
 
 def excluded_objects_insert_stream():
