@@ -183,6 +183,26 @@ def archive_object(resourceName, bucket_name, object_name, object_path):
             }, True)
 
 
+def should_archive(timedelta, object_path):
+    if 'SECONDS_THRESHOLD' in config:
+        # If present, SECONDS_THRESHOLD will override. Note this only works for seconds since midnight. This is only for development use.
+        if timedelta.seconds >= int(config['SECONDS_THRESHOLD']):
+            print(object_path, "last accessed {} ago, greater than {} second(s) ago".format(
+                timedelta, config['SECONDS_THRESHOLD']))
+            return True
+        print(object_path, "last accessed {} ago, less than {} second(s) ago".format(
+            timedelta, config['SECONDS_THRESHOLD']))
+        return False
+    else:
+        if timedelta.days >= int(config['DAYS_THRESHOLD']):
+            print(object_path, "last accessed {} ago, greater than {} days(s) ago".format(
+                timedelta, config['DAYS_THRESHOLD']))
+            return True
+        print(object_path, "last accessed {} ago, less than {} days(s) ago".format(
+            timedelta, config['DAYS_THRESHOLD']))
+        return False
+
+
 def evaluate_objects(audit_log):
     """Evaluates objects in the audit log to see if they should be moved to a new storage class.
 
@@ -209,15 +229,9 @@ def evaluate_objects(audit_log):
             timedelta = datetime.now(tz=timezone.utc) - row.lastAccess
             bucket_name, object_name = get_bucket_and_object(row.resourceName)
             object_path = "/".join(["gs:/", bucket_name, object_name])
-
-            if timedelta.days >= int(config['DAYS_THRESHOLD']):
-                print(object_path, "last accessed {} ago, greater than {} days(s) ago".format(
-                    timedelta, config['DAYS_THRESHOLD']))
+            if should_archive(timedelta, object_path):
                 executor.submit(archive_object, row.resourceName,
                                 bucket_name, object_name, object_path)
-            else:
-                print(object_path, "last accessed {} ago, less than {} days(s) ago".format(
-                    timedelta, config['DAYS_THRESHOLD']))
 
         # normal cleanup
         unregister(cleanup)
