@@ -64,31 +64,31 @@ def load_config_file(filepath, required=[]):
 clients = {}
 
 
-def get_bq_client():
+def get_bq_client(config):
     """Get a BigQuery client. Uses a simple create-if-not-found mechanism to avoid repeatedly creating new clients.
 
     Returns:
         google.cloud.bigquery.Client -- A BigQuery client.
     """
     if 'bq' not in clients:
-        bq = bigquery.Client()
+        bq = bigquery.Client(project=config["PROJECT"])
         clients['bq'] = bq
     return clients['bq']
 
 
-def get_gcs_client():
+def get_gcs_client(config):
     """Get a GCS client. Uses a simple create-if-not-found mechanism to avoid repeatedly creating new clients.
 
     Returns:
         google.cloud.storage.Client -- A GCS client.
     """
     if 'gcs' not in clients:
-        gcs = storage.Client()
+        gcs = storage.Client(project=config["PROJECT"])
         clients['gcs'] = gcs
     return clients['gcs']
 
 
-def initialize_table(name, schema):
+def initialize_table(config, name, schema):
     """Creates, if not found, a table.
 
     Arguments:
@@ -102,7 +102,7 @@ def initialize_table(name, schema):
         google.cloud.exceptions.GoogleCloudError –- If the job failed.
         concurrent.futures.TimeoutError –- If the job did not complete in the given timeout.
     """
-    bq = get_bq_client()
+    bq = get_bq_client(config)
 
     querytext = """
         CREATE TABLE IF NOT EXISTS {} (
@@ -127,7 +127,7 @@ def get_bucket_and_object(resource_name):
     return (bucket_name, object_name)
 
 
-def bq_insert_stream(tablename, iter_q, batch_size):
+def bq_insert_stream(config, tablename, iter_q, batch_size):
     """Insert records from an IterableQueue into BigQuery.
 
     Arguments:
@@ -141,7 +141,7 @@ def bq_insert_stream(tablename, iter_q, batch_size):
         google.cloud.exceptions.GoogleCloudError –- If the job failed.
         concurrent.futures.TimeoutError –- If the job did not complete in the given timeout.
     """
-    bq = get_bq_client()
+    bq = get_bq_client(config)
     print("Starting BQ insert stream to {}...".format(tablename))
     batch = []
 

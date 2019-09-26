@@ -45,7 +45,7 @@ def initialize_moved_objects_table():
             size INT64,
             archiveTimestamp TIMESTAMP
         """
-    return initialize_table(moved_objects_table, schema)
+    return initialize_table(config, moved_objects_table, schema)
 
 
 def initialize_excluded_objects_table():
@@ -61,7 +61,7 @@ def initialize_excluded_objects_table():
     excluded_objects_table = "`{}.{}.objects_excluded_from_archive`".format(
         config['PROJECT'], config['DATASET_NAME'])
     schema = "resourceName STRING"
-    return initialize_table(excluded_objects_table, schema)
+    return initialize_table(config, excluded_objects_table, schema)
 
 
 moved_objects = IterableQueue(maxsize=10000)
@@ -83,7 +83,7 @@ def moved_objects_insert_stream():
     # TODO: configurable?
     moved_objects_table = "{}.{}.objects_moved_to_{}".format(
         config['PROJECT'], config['DATASET_NAME'], config['NEW_STORAGE_CLASS'])
-    return bq_insert_stream(moved_objects_table, moved_objects, config["BQ_BATCH_WRITE_SIZE"])
+    return bq_insert_stream(config, moved_objects_table, moved_objects, config["BQ_BATCH_WRITE_SIZE"])
 
 
 excluded_objects = IterableQueue(maxsize=10000)
@@ -107,7 +107,7 @@ def excluded_objects_insert_stream():
     excluded_objects_table = "{}.{}.objects_excluded_from_archive".format(
         config['PROJECT'], config['DATASET_NAME'])
 
-    return bq_insert_stream(excluded_objects_table, excluded_objects, config["BQ_BATCH_WRITE_SIZE"])
+    return bq_insert_stream(config, excluded_objects_table, excluded_objects, config["BQ_BATCH_WRITE_SIZE"])
 
 
 def query_access_table():
@@ -122,7 +122,7 @@ def query_access_table():
         google.cloud.exceptions.GoogleCloudError – If the job failed.
         concurrent.futures.TimeoutError – If the job did not complete in the given timeout.
     """
-    bq = get_bq_client()
+    bq = get_bq_client(config)
 
     access_log_tables = "`{}.{}.cloudaudit_googleapis_com_data_access_*`".format(
         config['PROJECT'], config['DATASET_NAME'])
@@ -159,7 +159,7 @@ def archive_object(resourceName, bucket_name, object_name, object_path):
     Returns:
         string -- Human-readable output describing the operations undertaken.
     """
-    gcs = get_gcs_client()
+    gcs = get_gcs_client(config)
     bucket = storage.bucket.Bucket(gcs, name=bucket_name)
     try:
         blob = storage.blob.Blob(object_name, bucket)
