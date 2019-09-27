@@ -1,10 +1,11 @@
-PROJECT=$(shell cat config.cfg | grep PROJECT | cut -d '=' -f 2)
-DATASET_NAME=$(shell cat config.cfg | grep DATASET_NAME | cut -d '=' -f 2)
-SCHEDULING_TOPIC=$(shell cat config.cfg | grep SCHEDULING_TOPIC | cut -d '=' -f 2)
-SCHEDULED_JOB_NAME=$(shell cat config.cfg | grep SCHEDULED_JOB_NAME | cut -d '=' -f 2)
-SCHEDULE_CRON=$(shell cat config.cfg | grep SCHEDULE_CRON | cut -d '=' -f 2)
-FUNCTION_NAME=$(shell cat config.cfg | grep FUNCTION_NAME | cut -d '=' -f 2)
-FUNCTION_MEMORY=$(shell cat config.cfg | grep FUNCTION_MEMORY | cut -d '=' -f 2)
+CONFIG_FILE=$(shell if [ -z $$SMART_ARCHIVE_CONFIG ]; then echo default.cfg; else echo $$SMART_ARCHIVE_CONFIG; fi)
+PROJECT=$(shell cat $(CONFIG_FILE) | grep PROJECT | cut -d '=' -f 2)
+DATASET_NAME=$(shell cat $(CONFIG_FILE) | grep DATASET_NAME | cut -d '=' -f 2)
+SCHEDULING_TOPIC=$(shell cat $(CONFIG_FILE) | grep SCHEDULING_TOPIC | cut -d '=' -f 2)
+SCHEDULED_JOB_NAME=$(shell cat $(CONFIG_FILE) | grep SCHEDULED_JOB_NAME | cut -d '=' -f 2)
+SCHEDULE_CRON=$(shell cat $(CONFIG_FILE) | grep SCHEDULE_CRON | cut -d '=' -f 2)
+FUNCTION_NAME=$(shell cat $(CONFIG_FILE) | grep FUNCTION_NAME | cut -d '=' -f 2)
+FUNCTION_MEMORY=$(shell cat $(CONFIG_FILE) | grep FUNCTION_MEMORY | cut -d '=' -f 2)
 
 default: step_explain step_set_up_audit_logging step_set_up_bq_log_sink step_set_up_cloud_function step_set_up_cloud_scheduler
 
@@ -30,6 +31,7 @@ reset:
 	rm -f step_*
 
 step_explain:
+	@echo Using config file: $(CONFIG_FILE)
 	@echo ==========================================
 	@echo This Makefile will set up logging of GCS object access into a BigQuery dataset.
 	@echo
