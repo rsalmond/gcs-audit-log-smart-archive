@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timezone
 from queue import Queue
 
@@ -5,6 +6,7 @@ from dateutil import parser as dateparser
 from google.api_core.exceptions import BadRequest
 from google.cloud import bigquery, storage
 
+log = logging.getLogger("smart_archiver." + __name__)
 
 def event_is_fresh(data, context):
     """Ensure a background Cloud Function only executes within a certain
@@ -17,9 +19,10 @@ def event_is_fresh(data, context):
         None; output is written to Stackdriver Logging
     """
     if data is None:
-        # desktop run
+        log.debug("Running outside of Cloud Functions.")
         return True
 
+    log.debug(context)
     timestamp = context.timestamp
 
     event_time = dateparser.parse(timestamp)
@@ -30,17 +33,17 @@ def event_is_fresh(data, context):
     # TODO: Should this be configurable?
     max_age_ms = 10000
     if event_age_ms > max_age_ms:
-        print('Event timeout. Dropping {} (age {}ms)'.format(
+        log.info('Event is too old. Dropping {} (age {}ms)'.format(
             context.event_id, event_age_ms))
         return False
     return True
 
 
-def load_config_file(filepath, required=[]):
+def load_config_file(filepath, required=[], defaults={}):
     """
     Loads configuration file into module variables.
     """
-    config = dict()
+    config = defaults
     config_file = open(filepath, "r")
     for line in config_file:
         # ignore comments
@@ -49,14 +52,14 @@ def load_config_file(filepath, required=[]):
         # parse the line
         tokens = line.split('=')
         if len(tokens) != 2:
-            print("Error parsing config tokens: %s" % tokens)
+            log.info("Error parsing config tokens: %s" % tokens)
             continue
         k, v = tokens
         config[k.strip()] = v.strip()
     # quick validation
     for r in required:
         if r not in config.keys() or config[r] == "CONFIGURE_ME":
-            print('Missing required config item: {}'.format(r))
+            log.info('Missing required config item: {}'.format(r))
             exit(1)
     return config
 
@@ -71,7 +74,9 @@ def get_bq_client(config):
         google.cloud.bigquery.Client -- A BigQuery client.
     """
     if 'bq' not in clients:
-        bq = bigquery.Client(project=config["PROJECT"])
+        bq = bigquery.Client(
+            project=config["BQ_JOB_PROJECT"] if "BQ_JOB_PROJECT" in config else config["PROJECT"])
+        log.debug("Created new BigQuery client.")
         clients['bq'] = bq
     return clients['bq']
 
@@ -84,6 +89,7 @@ def get_gcs_client(config):
     """
     if 'gcs' not in clients:
         gcs = storage.Client(project=config["PROJECT"])
+        log.debug("Created new GCS client.")
         clients['gcs'] = gcs
     return clients['gcs']
 
@@ -109,6 +115,8 @@ def initialize_table(config, name, schema):
         {}
         )""".format(name, schema)
 
+    log.debug("Query: \n{}".format(querytext))
+
     query_job = bq.query(querytext)
     return query_job.result()
 
@@ -127,7 +135,7 @@ def get_bucket_and_object(resource_name):
     return (bucket_name, object_name)
 
 
-def bq_insert_stream(config, tablename, iter_q, batch_size):
+def bq_insert_stream(config, tablename, iter_q):
     """Insert records from an IterableQueue into BigQuery.
 
     Arguments:
@@ -142,14 +150,20 @@ def bq_insert_stream(config, tablename, iter_q, batch_size):
         concurrent.futures.TimeoutError –- If the job did not complete in the given timeout.
     """
     bq = get_bq_client(config)
-    print("Starting BQ insert stream to {}...".format(tablename))
+    log.info("Starting BQ insert stream to {}...".format(tablename))
     batch = []
+    batch_size = config["BQ_BATCH_WRITE_SIZE"]
 
     def flush_to_bq():
         try:
-            insert_errors = bq.insert_rows_json(tablename, batch)
-            if insert_errors:
-                print("Insert errors! {}".format([x for x in flatten(insert_errors)]))
+            if config["DRY_RUN"]:
+                log.info("DRY RUN: Would flush to BQ {} the following...\n{}".format(
+                    tablename, batch))
+            else:
+                insert_errors = bq.insert_rows_json(tablename, batch)
+                if insert_errors:
+                    log.info("Insert errors! {}".format(
+                        [x for x in flatten(insert_errors)]))
         except BadRequest as e:
             if not e.message.endswith("No rows present in the request."):
                 raise e
@@ -163,7 +177,7 @@ def bq_insert_stream(config, tablename, iter_q, batch_size):
     # finally, insert the remainder
     flush_to_bq()
 
-    print("Finished BQ insert stream to {}.".format(tablename))
+    log.info("Finished BQ insert stream to {}.".format(tablename))
 
 
 def flatten(iterable, iter_types=(list, tuple)):
