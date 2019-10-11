@@ -98,14 +98,17 @@ def excluded_objects_insert_stream(config):
     objects.
 
     Arguments:
-        resource_name {str} -- The resource name of the object, as given in the audit log.
+        resource_name {str} -- The resource name of the object, as given in the
+        audit log.
 
     Returns:
-        google.cloud.bigquery.table.RowIterator -- Result of the query. Since this is an INSERT query, this will always be empty if it succeeded.
+        google.cloud.bigquery.table.RowIterator -- Result of the query. Since
+        this is an INSERT query, this will always be empty if it succeeded.
 
     Raises:
         google.cloud.exceptions.GoogleCloudError –- If the job failed.
-        concurrent.futures.TimeoutError –- If the job did not complete in the given timeout.
+        concurrent.futures.TimeoutError –- If the job did not complete in the
+        given timeout.
     """
 
     # TODO: configurable?
@@ -155,6 +158,7 @@ def query_access_table(config):
     WHERE b.resourceName IS NULL AND c.resourceName IS NULL
     """.format(access_log_tables, moved_objects_table, excluded_objects_table,
                int(config["DAYS_THRESHOLD"]) + int(config["DAYS_BETWEEN_RUNS"]))
+    LOG.debug("Query: %s", querytext)
     query_job = bqc.query(querytext)
     return query_job.result()
 

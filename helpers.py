@@ -49,7 +49,7 @@ def load_config_file(filepath, required=[], defaults={}):
         # parse the line
         tokens = line.split('=')
         if len(tokens) != 2:
-            LOG.info("Error parsing config tokens: %s" % tokens)
+            LOG.info("Error parsing config tokens: %s", tokens)
             continue
         k, v = tokens
         config[k.strip()] = v.strip()
