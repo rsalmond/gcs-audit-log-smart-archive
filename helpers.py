@@ -8,6 +8,7 @@ from google.cloud import bigquery, storage
 
 log = logging.getLogger("smart_archiver." + __name__)
 
+
 def event_is_fresh(data, context):
     """Ensure a background Cloud Function only executes within a certain
     time period after the triggering event.
@@ -75,7 +76,8 @@ def get_bq_client(config):
     """
     if 'bq' not in clients:
         bq = bigquery.Client(
-            project=config["BQ_JOB_PROJECT"] if "BQ_JOB_PROJECT" in config else config["PROJECT"])
+            project=config["BQ_JOB_PROJECT"] if "BQ_JOB_PROJECT" in
+            config else config["PROJECT"])
         log.debug("Created new BigQuery client.")
         clients['bq'] = bq
     return clients['bq']
@@ -157,8 +159,9 @@ def bq_insert_stream(config, tablename, iter_q):
     def flush_to_bq():
         try:
             if config["DRY_RUN"]:
-                log.info("DRY RUN: Would flush to BQ {} the following...\n{}".format(
-                    tablename, batch))
+                log.info(
+                    "DRY RUN: Would flush to BQ {} the following...\n{}".format(
+                        tablename, batch))
             else:
                 insert_errors = bq.insert_rows_json(tablename, batch)
                 if insert_errors:

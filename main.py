@@ -161,10 +161,9 @@ def archive_object(resourceName, bucket_name, object_name, object_path, config):
             bucket = storage.bucket.Bucket(gcs, name=bucket_name)
             blob = storage.blob.Blob(object_name, bucket)
             blob.update_storage_class(config['NEW_STORAGE_CLASS'])
-        log.info("{}{} rewritten to: {}".format(
-            "DRY RUN: " if dry_run else "",
-            object_path,
-            config['NEW_STORAGE_CLASS']))
+        log.info("{}{} rewritten to: {}".format("DRY RUN: " if dry_run else "",
+                                                object_path,
+                                                config['NEW_STORAGE_CLASS']))
         moved_objects.put(
             {
                 "resourceName": resourceName,
@@ -174,12 +173,10 @@ def archive_object(resourceName, bucket_name, object_name, object_path, config):
         log.info(
             "{} object archive status streaming to BQ.".format(object_path))
     except NotFound:
-        log.info("{} skipped! This object wasn't found. Adding to excluded objects list so it will no longer be considered.".format(
-            object_path))
-        excluded_objects.put(
-            {
-                "resourceName": resourceName
-            }, True)
+        log.info(
+            "{} skipped! This object wasn't found. Adding to excluded objects list so it will no longer be considered."
+            .format(object_path))
+        excluded_objects.put({"resourceName": resourceName}, True)
 
 
 def should_archive(timedelta, object_path, config):
@@ -196,16 +193,18 @@ def should_archive(timedelta, object_path, config):
     if 'SECONDS_THRESHOLD' in config:
         # If present, SECONDS_THRESHOLD will override. Note this only works for seconds since midnight. This is only for development use.
         if timedelta.seconds >= int(config['SECONDS_THRESHOLD']):
-            log.info("{} last accessed {} ago, greater than {} second(s) ago".format(
-                object_path, timedelta, config['SECONDS_THRESHOLD']))
+            log.info(
+                "{} last accessed {} ago, greater than {} second(s) ago".format(
+                    object_path, timedelta, config['SECONDS_THRESHOLD']))
             return True
         log.info("{} last accessed {} ago, less than {} second(s) ago".format(
             object_path, timedelta, config['SECONDS_THRESHOLD']))
         return False
     else:
         if timedelta.days >= int(config['DAYS_THRESHOLD']):
-            log.info("{} last accessed {} ago, greater than {} days(s) ago".format(
-                object_path, timedelta, config['DAYS_THRESHOLD']))
+            log.info(
+                "{} last accessed {} ago, greater than {} days(s) ago".format(
+                    object_path, timedelta, config['DAYS_THRESHOLD']))
             return True
         log.info("{} last accessed {} ago, less than {} days(s) ago".format(
             object_path, timedelta, config['DAYS_THRESHOLD']))
@@ -239,8 +238,8 @@ def evaluate_objects(audit_log, config):
             bucket_name, object_name = get_bucket_and_object(row.resourceName)
             object_path = "/".join(["gs:/", bucket_name, object_name])
             if should_archive(timedelta, object_path, config):
-                executor.submit(archive_object, row.resourceName,
-                                bucket_name, object_name, object_path, config)
+                executor.submit(archive_object, row.resourceName, bucket_name,
+                                object_name, object_path, config)
 
         # normal cleanup
         unregister(cleanup)
@@ -265,11 +264,9 @@ def build_config():
     log.info("Loading config: {}".format(config_file))
     return load_config_file(config_file,
                             required=[
-                                'PROJECT',
-                                'DATASET_NAME',
-                                'DAYS_THRESHOLD',
-                                'NEW_STORAGE_CLASS',
-                                'BQ_BATCH_WRITE_SIZE'],
+                                'PROJECT', 'DATASET_NAME', 'DAYS_THRESHOLD',
+                                'NEW_STORAGE_CLASS', 'BQ_BATCH_WRITE_SIZE'
+                            ],
                             defaults={
                                 'LOG_LEVEL': 'INFO',
                                 'DRY_RUN': False
@@ -294,7 +291,8 @@ def archive_cold_objects(data, context):
         log.info("Initializing excluded objects table (if not found).")
         initialize_excluded_objects_table(config)
 
-        log.info("Getting access log, without already moved and excluded objects.")
+        log.info(
+            "Getting access log, without already moved and excluded objects.")
         audit_log = query_access_table(config)
 
         log.info("Evaluating accessed objects for rewriting to {}.".format(
