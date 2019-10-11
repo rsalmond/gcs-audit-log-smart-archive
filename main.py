@@ -144,12 +144,17 @@ def query_access_table(config):
     SELECT a.resourceName, lastAccess FROM (
         SELECT REGEXP_REPLACE(protopayload_auditlog.resourceName, "gs://.*/", "") AS resourceName,
         MAX(timestamp) AS lastAccess FROM {0}
+        WHERE
+            _TABLE_SUFFIX BETWEEN 
+            FORMAT_DATE("%Y%m%d", DATE_SUB(CURRENT_DATE(), INTERVAL {3} DAY)) AND
+            FORMAT_DATE("%Y%m%d", CURRENT_DATE())
         GROUP BY resourceName) 
     AS a 
     LEFT JOIN {1} as b ON a.resourceName = b.resourceName
     LEFT JOIN {2} as c ON a.resourceName = c.resourceName
     WHERE b.resourceName IS NULL AND c.resourceName IS NULL
-    """.format(access_log_tables, moved_objects_table, excluded_objects_table)
+    """.format(access_log_tables, moved_objects_table, excluded_objects_table,
+               int(config["DAYS_THRESHOLD"]) + int(config["DAYS_BETWEEN_RUNS"]))
     query_job = bqc.query(querytext)
     return query_job.result()
 
