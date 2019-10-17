@@ -62,35 +62,21 @@ def load_config_file(filepath, required=[], defaults={}):
     return config
 
 
-clients = {}
-
-
 def get_bq_client(config):
-    """Get a BigQuery client. Uses a simple create-if-not-found mechanism to
-    avoid repeatedly creating new clients.
+    """Get a BigQuery client. 
 
     Returns:     google.cloud.bigquery.Client -- A BigQuery client.
     """
-    if 'bq' not in clients:
-        bq = bigquery.Client(
-            project=config["BQ_JOB_PROJECT"] if "BQ_JOB_PROJECT" in
-            config else config["PROJECT"])
-        LOG.debug("Created new BigQuery client.")
-        clients['bq'] = bq
-    return clients['bq']
+    return bigquery.Client(project=config["BQ_JOB_PROJECT"] if "BQ_JOB_PROJECT"
+                           in config else config["PROJECT"])
 
 
 def get_gcs_client(config):
-    """Get a GCS client. Uses a simple create-if-not-found mechanism to avoid
-    repeatedly creating new clients.
+    """Get a GCS client. 
 
     Returns:     google.cloud.storage.Client -- A GCS client.
     """
-    if 'gcs' not in clients:
-        gcs = storage.Client(project=config["PROJECT"])
-        LOG.debug("Created new GCS client.")
-        clients['gcs'] = gcs
-    return clients['gcs']
+    return storage.Client(project=config["PROJECT"])
 
 
 def get_bucket_and_object(resource_name):
