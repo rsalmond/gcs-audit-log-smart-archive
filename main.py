@@ -101,9 +101,11 @@ def query_access_table(config):
     AS a 
     LEFT JOIN {1} as b ON a.resourceName = b.resourceName
     LEFT JOIN {2} as c ON a.resourceName = c.resourceName
-    WHERE b.resourceName IS NULL AND c.resourceName IS NULL
+    WHERE b.resourceName IS NULL AND c.resourceName IS NULL AND
+    TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), lastAccess, DAY) >= {4}
     """.format(access_log_tables, moved_objects_table, excluded_objects_table,
-               int(config["DAYS_THRESHOLD"]) + int(config["DAYS_BETWEEN_RUNS"]))
+               int(config["DAYS_THRESHOLD"]) + int(config["DAYS_BETWEEN_RUNS"]),
+               int(config["DAYS_THRESHOLD"]))
     LOG.debug("Query: %s", querytext)
     query_job = bqc.query(querytext)
     return query_job.result()
