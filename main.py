@@ -229,7 +229,7 @@ def find_config_file(args):
 
 def build_config():
     parser = argparse.ArgumentParser()
-    parser.add_argument("config_file")
+    parser.add_argument("--config_file", required=False)
     args = parser.parse_args()
 
     config_file = find_config_file(args)
@@ -257,9 +257,10 @@ def archive_cold_objects(data, context):
     if event_is_fresh(data, context):
         config = build_config()
         # set level at root logger
-        logging.getLogger("smart_archiver").setLevel(config['LOG_LEVEL'])
-        LOG.debug("Configuration: \n %s", config)
+        if hasattr(logging, config.get('LOG_LEVEL')):
+            logging.getLogger("smart_archiver." + __name__).setLevel(getattr(logging, config.get('LOG_LEVEL')))
 
+        LOG.debug("Configuration: \n %s", config)
         LOG.info("Evaluating accessed objects for rewriting to %s.",
                  config['NEW_STORAGE_CLASS'])
         evaluate_objects(config)
