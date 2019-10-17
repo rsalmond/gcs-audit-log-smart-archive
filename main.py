@@ -3,16 +3,16 @@ import argparse
 import logging
 import warnings
 from atexit import register, unregister
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait
 from datetime import datetime, timezone
 from os import getenv
 
 from google.api_core.exceptions import NotFound
 from google.cloud import storage
 
-from helpers import (IterableQueue, bq_insert_stream, event_is_fresh,
-                     get_bq_client, get_bucket_and_object, get_gcs_client,
-                     initialize_table, load_config_file)
+from helpers import (BigQueryOutput, event_is_fresh, get_bq_client,
+                     get_bucket_and_object, get_gcs_client, initialize_table,
+                     load_config_file)
 
 warnings.filterwarnings(
     "ignore", "Your application has authenticated using end user credentials")
@@ -21,7 +21,7 @@ logging.basicConfig()
 LOG = logging.getLogger("smart_archiver." + __name__)
 
 
-def initialize_moved_objects_table(config):
+def get_moved_objects_output(config):
     """Creates, if not found, a table in which objects moved by this script to
     another storage class are stored. This table is used to exclude such items
     from future runs to keep execution time short.
@@ -35,17 +35,17 @@ def initialize_moved_objects_table(config):
         concurrent.futures.TimeoutError –- If the job did not complete in the
         given timeout.
     """
-    moved_objects_table = "`{}.{}.objects_moved_to_{}`".format(
+    moved_objects_table = "{}.{}.objects_moved_to_{}".format(
         config['PROJECT'], config['DATASET_NAME'], config['NEW_STORAGE_CLASS'])
     schema = """
             resourceName STRING, 
             size INT64,
             archiveTimestamp TIMESTAMP
         """
-    return initialize_table(config, moved_objects_table, schema)
+    return BigQueryOutput(config, moved_objects_table, schema)
 
 
-def initialize_excluded_objects_table(config):
+def get_excluded_objects_output(config):
     """Creates, if not found, a table in which objects which should be ignored
     by this script are stored.
 
@@ -58,64 +58,10 @@ def initialize_excluded_objects_table(config):
         concurrent.futures.TimeoutError –- If the job did not complete in the
         given timeout.
     """
-    excluded_objects_table = "`{}.{}.objects_excluded_from_archive`".format(
-        config['PROJECT'], config['DATASET_NAME'])
-    schema = "resourceName STRING"
-    return initialize_table(config, excluded_objects_table, schema)
-
-
-MOVED_OBJECTS = IterableQueue(maxsize=3000)
-
-
-def moved_objects_insert_stream(config):
-    """Insert the resource name of an object into the table of moved objects
-    for exclusion later.
-
-    Arguments:
-        resource_name {str} -- The resource name of the object, as given in the
-        audit log.
-
-    Returns:
-        google.cloud.bigquery.table.RowIterator -- Result of the query. Since
-        this is an INSERT query, this will always be empty if it succeeded.
-
-    Raises:
-        google.cloud.exceptions.GoogleCloudError –- If the job failed.
-        concurrent.futures.TimeoutError –- If the job did not complete in the
-        given timeout.
-    """
-    # TODO: configurable?
-    moved_objects_table = "{}.{}.objects_moved_to_{}".format(
-        config['PROJECT'], config['DATASET_NAME'], config['NEW_STORAGE_CLASS'])
-    return bq_insert_stream(config, moved_objects_table, MOVED_OBJECTS)
-
-
-EXCLUDED_OBJECTS = IterableQueue(maxsize=3000)
-
-
-def excluded_objects_insert_stream(config):
-    """Insert the resource name of an object into the table of excluded
-    objects.
-
-    Arguments:
-        resource_name {str} -- The resource name of the object, as given in the
-        audit log.
-
-    Returns:
-        google.cloud.bigquery.table.RowIterator -- Result of the query. Since
-        this is an INSERT query, this will always be empty if it succeeded.
-
-    Raises:
-        google.cloud.exceptions.GoogleCloudError –- If the job failed.
-        concurrent.futures.TimeoutError –- If the job did not complete in the
-        given timeout.
-    """
-
-    # TODO: configurable?
     excluded_objects_table = "{}.{}.objects_excluded_from_archive".format(
         config['PROJECT'], config['DATASET_NAME'])
-
-    return bq_insert_stream(config, excluded_objects_table, EXCLUDED_OBJECTS)
+    schema = "resourceName STRING"
+    return BigQueryOutput(config, excluded_objects_table, schema)
 
 
 def query_access_table(config):
@@ -163,42 +109,6 @@ def query_access_table(config):
     return query_job.result()
 
 
-def archive_object(resourceName, bucket_name, object_name, object_path, config):
-    """Rewrites an object to the archive storage class and stores record of it.
-
-    Arguments:
-        resourceName {string} -- The resource name for the object as shown in the
-        audit log (protopayload_auditlog.resourceName).
-        bucket_name {string} -- The name of the bucket where the object resides.
-        object_name {string} -- The name of the object within the bucket.
-        object_path {string} -- The full gs:// path to the object.
-
-    Returns:
-        string -- Human-readable output describing the operations undertaken.
-    """
-    dry_run = config["DRY_RUN"]
-    try:
-        if not dry_run:
-            gcs = get_gcs_client(config)
-            bucket = storage.bucket.Bucket(gcs, name=bucket_name)
-            blob = storage.blob.Blob(object_name, bucket)
-            blob.update_storage_class(config['NEW_STORAGE_CLASS'])
-        LOG.info("%s%s rewritten to: %s", "DRY RUN: " if dry_run else "",
-                 object_path, config['NEW_STORAGE_CLASS'])
-        MOVED_OBJECTS.put(
-            {
-                "resourceName": resourceName,
-                "size": blob.size,
-                "archiveTimestamp": str(datetime.now(timezone.utc))
-            }, True)
-        LOG.info("%s object archive status streaming to BQ.", object_path)
-    except NotFound:
-        LOG.info(
-            "%s skipped! This object wasn't found. Adding to excluded objects list\
-             so it will no longer be considered.", object_path)
-        EXCLUDED_OBJECTS.put({"resourceName": resourceName}, True)
-
-
 def should_archive(timedelta, object_path, config):
     """Decide whether an object should be archived.
 
@@ -229,27 +139,61 @@ def should_archive(timedelta, object_path, config):
         return False
 
 
-def evaluate_objects(audit_log, config):
+def archive_object(resourceName, bucket_name, object_name, object_path, config,
+                   moved_output, excluded_output):
+    """Rewrites an object to the archive storage class and stores record of it.
+
+    Arguments:
+        resourceName {string} -- The resource name for the object as shown in the
+        audit log (protopayload_auditlog.resourceName).
+        bucket_name {string} -- The name of the bucket where the object resides.
+        object_name {string} -- The name of the object within the bucket.
+        object_path {string} -- The full gs:// path to the object.
+
+    Returns:
+        string -- Human-readable output describing the operations undertaken.
+    """
+    dry_run = config["DRY_RUN"]
+    try:
+        gcs = get_gcs_client(config)
+        bucket = storage.bucket.Bucket(gcs, name=bucket_name)
+        blob = storage.blob.Blob(object_name, bucket)
+        object_info = {
+            "resourceName": resourceName,
+            "size": blob.size,
+            "archiveTimestamp": str(datetime.now(timezone.utc))
+        }
+        LOG.info("%s%s rewriting to: %s", "DRY RUN: " if dry_run else "",
+                 object_path, config['NEW_STORAGE_CLASS'])
+        if not dry_run:
+            blob.update_storage_class(config['NEW_STORAGE_CLASS'], gcs)
+            LOG.info("%s rewrite to %s complete.\n%s", object_path, config['NEW_STORAGE_CLASS'], object_info)
+        moved_output.put(object_info)
+        LOG.debug("%s object storage class status queued for write to BQ.",
+                  object_path)
+    except NotFound:
+        LOG.info(
+            "%s skipped! This object wasn't found. Adding to excluded objects list so it will no longer be considered.", object_path)
+        excluded_output.put({"resourceName": resourceName})
+
+
+def evaluate_objects(config):
     """Evaluates objects in the audit log to see if they should be moved to a
     new storage class.
 
     Arguments:
         audit_log {google.cloud.bigquery.table.RowIterator} -- The result set of a query of the audit log table, with the columns `resourceName` and `lastAccess`.
     """
+    moved_output = get_moved_objects_output(config)
+    excluded_output = get_excluded_objects_output(config)
 
-    with ThreadPoolExecutor(max_workers=8) as executor:
-        # start BQ stream
-        executor.submit(moved_objects_insert_stream)
-        executor.submit(excluded_objects_insert_stream)
+    LOG.info(
+        "Getting last access of all objects, without already moved and excluded objects."
+    )
+    audit_log = query_access_table(config)
 
-        def cleanup():
-            # terminate the BQ stream
-            MOVED_OBJECTS.close()
-            EXCLUDED_OBJECTS.close()
-            executor.shutdown()
-
-        # shutdown hook for cleanup in case we get a sigterm
-        register(cleanup)
+    with ThreadPoolExecutor() as executor:
+        jobs = list()
 
         # evaluate, archive and record
         for row in audit_log:
@@ -257,12 +201,17 @@ def evaluate_objects(audit_log, config):
             bucket_name, object_name = get_bucket_and_object(row.resourceName)
             object_path = "/".join(["gs:/", bucket_name, object_name])
             if should_archive(timedelta, object_path, config):
-                executor.submit(archive_object, row.resourceName, bucket_name,
-                                object_name, object_path, config)
+                jobs.append(
+                    executor.submit(archive_object, row.resourceName,
+                                    bucket_name, object_name, object_path,
+                                    config, moved_output, excluded_output))
 
-        # normal cleanup
-        unregister(cleanup)
-        cleanup()
+        # wait for all of the row jobs to complete
+        wait(jobs)
+        moved_output.flush()
+        LOG.info(moved_output.stats())
+        excluded_output.flush()
+        LOG.info(excluded_output.stats())
 
 
 def find_config_file(args):
@@ -305,18 +254,9 @@ def archive_cold_objects(data, context):
         logging.getLogger("smart_archiver").setLevel(config['LOG_LEVEL'])
         LOG.debug("Configuration: \n %s", config)
 
-        LOG.info("Initializing moved objects table (if not found).")
-        initialize_moved_objects_table(config)
-        LOG.info("Initializing excluded objects table (if not found).")
-        initialize_excluded_objects_table(config)
-
-        LOG.info(
-            "Getting access log, without already moved and excluded objects.")
-        audit_log = query_access_table(config)
-
         LOG.info("Evaluating accessed objects for rewriting to %s.",
                  config['NEW_STORAGE_CLASS'])
-        evaluate_objects(audit_log, config)
+        evaluate_objects(config)
 
         LOG.info("Done.")
 
