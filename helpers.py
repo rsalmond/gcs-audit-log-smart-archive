@@ -1,6 +1,7 @@
 import logging
 from datetime import datetime, timezone
 from queue import Queue
+from threading import Lock
 
 from dateutil import parser as dateparser
 from google.api_core.exceptions import BadRequest
@@ -92,31 +93,6 @@ def get_gcs_client(config):
     return clients['gcs']
 
 
-def initialize_table(config, name, schema):
-    """Creates, if not found, a table.
-
-    Arguments:     name {string} -- The fully qualified table name.
-    schema {string} -- The schema portion of a BigQuery CREATE TABLE DDL
-    query. For example: "resourceName STRING"  Returns:
-    google.cloud.bigquery.table.RowIterator -- Result of the query. Since
-    this is a DDL query, this will always be empty if it succeeded.
-    Raises:     google.cloud.exceptions.GoogleCloudError –- If the job
-    failed.     concurrent.futures.TimeoutError –- If the job did not
-    complete in the given timeout.
-    """
-    bq = get_bq_client(config)
-
-    querytext = """
-        CREATE TABLE IF NOT EXISTS {} (
-        {}
-        )""".format(name, schema)
-
-    LOG.debug("Query: \n{}".format(querytext))
-
-    query_job = bq.query(querytext)
-    return query_job.result()
-
-
 def get_bucket_and_object(resource_name):
     """Given an audit log resourceName, parse out the bucket name and object
     path within the bucket.
@@ -131,47 +107,64 @@ def get_bucket_and_object(resource_name):
     return (bucket_name, object_name)
 
 
-def bq_insert_stream(config, tablename, iter_q):
-    """Insert records from an IterableQueue into BigQuery.
+def initialize_table(config, name, schema):
+    """Creates, if not found, a table.
 
-    Arguments:     table_name {str} -- The name of the table into which to
-    stream rows.     iter_q {IterableQueue} -- The IterableQueue to read
-    from.  Returns:     google.cloud.bigquery.table.RowIterator -- Result
-    of the query. Since this is an INSERT query, this will always be empty
-    if it succeeded.  Raises:     google.cloud.exceptions.GoogleCloudError
-    –- If the job failed.     concurrent.futures.TimeoutError –- If the
-    job did not complete in the given timeout.
+    Arguments:     name {string} -- The fully qualified table name.
+    schema {string} -- The schema portion of a BigQuery CREATE TABLE DDL
+    query. For example: "resourceName STRING"  Returns:
+    google.cloud.bigquery.table.RowIterator -- Result of the query. Since
+    this is a DDL query, this will always be empty if it succeeded.
+    Raises:     google.cloud.exceptions.GoogleCloudError –- If the job
+    failed.     concurrent.futures.TimeoutError –- If the job did not
+    complete in the given timeout.
     """
     bq = get_bq_client(config)
-    LOG.info("Starting BQ insert stream to {}...".format(tablename))
-    batch = []
-    batch_size = config["BQ_BATCH_WRITE_SIZE"]
 
-    def flush_to_bq():
+    LOG.info("Creating table %s if not found.", name)
+
+    querytext = """
+        CREATE TABLE IF NOT EXISTS `{}` (
+        {}
+        )""".format(name, schema)
+
+    LOG.debug("Query: \n{}".format(querytext))
+
+    query_job = bq.query(querytext)
+    return query_job.result()
+
+
+class BigQueryOutput():
+
+    def __init__(self, config, tablename, schema):
+        self.lock = Lock()
+        self.client = get_bq_client(config)
+        self.rows = list()
+        self.tablename = tablename
+        self.batch_size = int(config["BQ_BATCH_WRITE_SIZE"])
+        initialize_table(config, tablename, schema)
+
+    def put(self, row):
+        self.rows.append(row)
+        self.lock.acquire()
+        if len(self.rows) >= self.batch_size:
+            self.flush()
+        self.lock.release()
+
+    def flush(self):
+        LOG.debug("Flushing %s rows to %s.", len(self.rows), self.tablename)
         try:
-            if config["DRY_RUN"]:
-                LOG.info(
-                    "DRY RUN: Would flush to BQ {} the following...\n{}".format(
-                        tablename, batch))
-            else:
-                insert_errors = bq.insert_rows_json(tablename, batch)
-                if insert_errors:
-                    LOG.info("Insert errors! {}".format(
-                        [x for x in flatten(insert_errors)]))
-        except BadRequest as e:
-            if not e.message.endswith("No rows present in the request."):
-                raise e
+            insert_errors = self.client.insert_rows_json(
+                self.tablename, self.rows)
+            if insert_errors:
+                LOG.error("Insert errors! %s",
+                          [x for x in flatten(insert_errors)])
+        except BadRequest as error:
+            if not error.message.endswith("No rows present in the request."):
+                LOG.error("Insert error! %s", error.message)
+                raise error
         finally:
-            batch.clear()
-
-    for row in iter_q:
-        batch.append(row)
-        if len(batch) > batch_size:
-            flush_to_bq()
-    # finally, insert the remainder
-    flush_to_bq()
-
-    LOG.info("Finished BQ insert stream to {}.".format(tablename))
+            self.rows = list()
 
 
 def flatten(iterable, iter_types=(list, tuple)):
@@ -182,14 +175,3 @@ def flatten(iterable, iter_types=(list, tuple)):
                 yield j
         else:
             yield i
-
-
-class IterableQueue(Queue):
-
-    _sentinel = object()
-
-    def __iter__(self):
-        return iter(self.get, self._sentinel)
-
-    def close(self):
-        self.put(self._sentinel)
