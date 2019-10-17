@@ -2,7 +2,6 @@
 import argparse
 import logging
 import warnings
-from atexit import register, unregister
 from concurrent.futures import ThreadPoolExecutor, wait
 from datetime import datetime, timezone
 from os import getenv
@@ -11,8 +10,7 @@ from google.api_core.exceptions import NotFound
 from google.cloud import storage
 
 from helpers import (BigQueryOutput, event_is_fresh, get_bq_client,
-                     get_bucket_and_object, get_gcs_client, initialize_table,
-                     load_config_file)
+                     get_bucket_and_object, get_gcs_client, load_config_file)
 
 warnings.filterwarnings(
     "ignore", "Your application has authenticated using end user credentials")
@@ -36,7 +34,8 @@ def get_moved_objects_output(config):
         given timeout.
     """
     moved_objects_table = "{}.{}.objects_moved_to_{}".format(
-        config['PROJECT'], config['DATASET_NAME'], config['NEW_STORAGE_CLASS'])
+        config["BQ_JOB_PROJECT"] if "BQ_JOB_PROJECT" in config else
+        config["PROJECT"], config['DATASET_NAME'], config['NEW_STORAGE_CLASS'])
     schema = """
             resourceName STRING, 
             size INT64,
@@ -59,7 +58,8 @@ def get_excluded_objects_output(config):
         given timeout.
     """
     excluded_objects_table = "{}.{}.objects_excluded_from_archive".format(
-        config['PROJECT'], config['DATASET_NAME'])
+        config["BQ_JOB_PROJECT"] if "BQ_JOB_PROJECT" in config else
+        config["PROJECT"], config['DATASET_NAME'])
     schema = "resourceName STRING"
     return BigQueryOutput(config, excluded_objects_table, schema)
 
@@ -78,6 +78,10 @@ def query_access_table(config):
         google.cloud.exceptions.GoogleCloudError – If the job failed.
         concurrent.futures.TimeoutError – If the job did not complete in the given timeout.
     """
+    LOG.info(
+        "Getting last access of all objects, where last access is older than the DAYS_THRESHOLD, without already moved and excluded objects."
+    )
+
     bqc = get_bq_client(config)
 
     access_log_tables = "`{}.{}.cloudaudit_googleapis_com_data_access_*`".format(
@@ -169,13 +173,15 @@ def archive_object(resourceName, bucket_name, object_name, object_path, config,
                  object_path, config['NEW_STORAGE_CLASS'])
         if not dry_run:
             blob.update_storage_class(config['NEW_STORAGE_CLASS'], gcs)
-            LOG.info("%s rewrite to %s complete.\n%s", object_path, config['NEW_STORAGE_CLASS'], object_info)
+            LOG.info("%s rewrite to %s complete.\n%s", object_path,
+                     config['NEW_STORAGE_CLASS'], object_info)
         moved_output.put(object_info)
         LOG.debug("%s object storage class status queued for write to BQ.",
                   object_path)
     except NotFound:
         LOG.info(
-            "%s skipped! This object wasn't found. Adding to excluded objects list so it will no longer be considered.", object_path)
+            "%s skipped! This object wasn't found. Adding to excluded objects list so it will no longer be considered.",
+            object_path)
         excluded_output.put({"resourceName": resourceName})
 
 
@@ -189,9 +195,6 @@ def evaluate_objects(config):
     moved_output = get_moved_objects_output(config)
     excluded_output = get_excluded_objects_output(config)
 
-    LOG.info(
-        "Getting last access of all objects, without already moved and excluded objects."
-    )
     audit_log = query_access_table(config)
 
     with ThreadPoolExecutor() as executor:
@@ -235,7 +238,8 @@ def build_config():
     return load_config_file(config_file,
                             required=[
                                 'PROJECT', 'DATASET_NAME', 'DAYS_THRESHOLD',
-                                'NEW_STORAGE_CLASS', 'BQ_BATCH_WRITE_SIZE'
+                                'NEW_STORAGE_CLASS', 'BQ_BATCH_WRITE_SIZE',
+                                'DAYS_BETWEEN_RUNS'
                             ],
                             defaults={
                                 'LOG_LEVEL': 'INFO',
