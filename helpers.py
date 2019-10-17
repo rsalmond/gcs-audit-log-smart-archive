@@ -142,6 +142,7 @@ class BigQueryOutput():
         self.rows = list()
         self.tablename = tablename
         self.batch_size = int(config["BQ_BATCH_WRITE_SIZE"])
+        self.insert_count = 0
         initialize_table(config, tablename, schema)
 
     def put(self, row):
@@ -164,7 +165,11 @@ class BigQueryOutput():
                 LOG.error("Insert error! %s", error.message)
                 raise error
         finally:
+            self.insert_count += len(self.rows)
             self.rows = list()
+
+    def stats(self):
+        return "{} rows inserted into {}".format(self.insert_count, self.tablename)
 
 
 def flatten(iterable, iter_types=(list, tuple)):
