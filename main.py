@@ -2,6 +2,7 @@
 import argparse
 import logging
 import warnings
+from atexit import register
 from threading import Thread
 from datetime import datetime, timezone
 from os import getenv
@@ -220,6 +221,16 @@ def evaluate_objects(config):
         t = Thread(target=archive_worker)
         t.start()
         worker_threads.append(t)
+    
+    # Register cleanup as shutdown hook
+    def cleanup():
+        # Flush any remaining output
+        moved_output.flush()
+        excluded_output.flush()
+        # Print statistics
+        LOG.info(moved_output.stats())
+        LOG.info(excluded_output.stats())
+    register(cleanup)
 
     # Enqueue all work
     last_accesses = query_access_table(config)
@@ -235,13 +246,8 @@ def evaluate_objects(config):
     for t in worker_threads:
         t.join()
 
-    # Flush any remaining output
-    moved_output.flush()
-    excluded_output.flush()
 
-    # Print statistics
-    LOG.info(moved_output.stats())
-    LOG.info(excluded_output.stats())
+
 
 
 def find_config_file(args):
@@ -292,7 +298,7 @@ def archive_cold_objects(data, context):
                  config['NEW_STORAGE_CLASS'])
         evaluate_objects(config)
 
-        LOG.info("Done.")
+        LOG.info("Running shutdown hooks and exiting normally.")
 
 
 if __name__ == '__main__':
