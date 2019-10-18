@@ -285,7 +285,7 @@ def archive_cold_objects(data, context):
         if hasattr(logging, config.get('LOG_LEVEL')):
             logging.getLogger("smart_archiver").setLevel(getattr(logging, config.get('LOG_LEVEL')))
         else:
-            print("Invalid log level specified: {}".format(config.get('LOG_LEVEL'))
+            print("Invalid log level specified: {}".format(config.get('LOG_LEVEL')))
             exit(1)
         LOG.debug("Configuration: \n %s", config)
         LOG.info("Evaluating accessed objects for rewriting to %s.",
