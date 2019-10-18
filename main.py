@@ -2,9 +2,10 @@
 import argparse
 import logging
 import warnings
-from concurrent.futures import ThreadPoolExecutor, wait
+from threading import Thread
 from datetime import datetime, timezone
 from os import getenv
+from queue import Queue
 
 from google.api_core.exceptions import NotFound
 from google.cloud import storage
@@ -194,29 +195,50 @@ def evaluate_objects(config):
     """
     moved_output = get_moved_objects_output(config)
     excluded_output = get_excluded_objects_output(config)
+    work_queue = Queue(maxsize=3000)
 
-    audit_log = query_access_table(config)
-
-    with ThreadPoolExecutor() as executor:
-        jobs = list()
-
-        # evaluate, archive and record
-        for row in audit_log:
+    # evaluate, archive and record
+    def archive_worker():
+        while True:
+            row = work_queue.get()
+            if not row:
+                break
             timedelta = datetime.now(tz=timezone.utc) - row.lastAccess
             bucket_name, object_name = get_bucket_and_object(row.resourceName)
             object_path = "/".join(["gs:/", bucket_name, object_name])
             if should_archive(timedelta, object_path, config):
-                jobs.append(
-                    executor.submit(archive_object, row.resourceName,
-                                    bucket_name, object_name, object_path,
-                                    config, moved_output, excluded_output))
+                archive_object(row.resourceName, bucket_name, object_name,
+                            object_path, config, moved_output, excluded_output)
+            work_queue.task_done()
 
-        # wait for all of the row jobs to complete
-        wait(jobs)
-        moved_output.flush()
-        LOG.info(moved_output.stats())
-        excluded_output.flush()
-        LOG.info(excluded_output.stats())
+    # Start all worker threads
+    worker_threads = []
+    for _ in range(32):
+        t = Thread(target=archive_worker)
+        t.start()
+        worker_threads.append(t)
+
+    # Enqueue all work
+    last_accesses = query_access_table(config)
+    for row in last_accesses:
+        work_queue.put(row)
+
+    # wait for all of the row jobs to complete
+    work_queue.join()
+
+    # shutdown workers
+    for _ in range(32):
+        work_queue.put(None)
+    for t in worker_threads:
+        t.join()
+
+    # Flush any remaining output
+    moved_output.flush()
+    excluded_output.flush()
+
+    # Print statistics
+    LOG.info(moved_output.stats())
+    LOG.info(excluded_output.stats())
 
 
 def find_config_file(args):
@@ -258,8 +280,10 @@ def archive_cold_objects(data, context):
         config = build_config()
         # set level at root logger
         if hasattr(logging, config.get('LOG_LEVEL')):
-            logging.getLogger("smart_archiver." + __name__).setLevel(getattr(logging, config.get('LOG_LEVEL')))
-
+            logging.getLogger("smart_archiver").setLevel(getattr(logging, config.get('LOG_LEVEL')))
+        else:
+            print("Invalid log level specified: {}".format(config.get('LOG_LEVEL'))
+            exit(1)
         LOG.debug("Configuration: \n %s", config)
         LOG.info("Evaluating accessed objects for rewriting to %s.",
                  config['NEW_STORAGE_CLASS'])
