@@ -39,6 +39,7 @@ def get_moved_objects_output(config):
         config["PROJECT"], config['DATASET_NAME'], config['NEW_STORAGE_CLASS'])
     schema = """
             resourceName STRING, 
+            storageClass STRING,
             size INT64,
             archiveTimestamp TIMESTAMP
         """
@@ -146,7 +147,7 @@ def should_archive(timedelta, object_path, config):
         return False
 
 
-def archive_object(resourceName, bucket_name, object_name, object_path, config,
+def archive_object(resource_name, bucket_name, object_name, object_path, config,
                    moved_output, excluded_output):
     """Rewrites an object to the archive storage class and stores record of it.
 
@@ -161,29 +162,30 @@ def archive_object(resourceName, bucket_name, object_name, object_path, config,
         string -- Human-readable output describing the operations undertaken.
     """
     dry_run = config["DRY_RUN"]
+    storage_class = config['NEW_STORAGE_CLASS']
     try:
         gcs = get_gcs_client(config)
         bucket = storage.bucket.Bucket(gcs, name=bucket_name)
         blob = storage.blob.Blob(object_name, bucket)
+        LOG.info("%s%s rewriting to: %s", "DRY RUN: " if dry_run else "",
+                 object_path, storage_class)
+        if not dry_run:
+            blob.update_storage_class(storage_class, gcs)
+            LOG.debug("%s rewrite to %s complete.", object_path, storage_class)
         object_info = {
-            "resourceName": resourceName,
+            "storageClass": storage_class,
+            "resourceName": resource_name,
             "size": blob.size,
             "archiveTimestamp": str(datetime.now(timezone.utc))
         }
-        LOG.info("%s%s rewriting to: %s", "DRY RUN: " if dry_run else "",
-                 object_path, config['NEW_STORAGE_CLASS'])
-        if not dry_run:
-            blob.update_storage_class(config['NEW_STORAGE_CLASS'], gcs)
-            LOG.info("%s rewrite to %s complete.\n%s", object_path,
-                     config['NEW_STORAGE_CLASS'], object_info)
         moved_output.put(object_info)
-        LOG.debug("%s object storage class status queued for write to BQ.",
-                  object_path)
+        LOG.info("%s new storage class queued for write to BQ: \n%s",
+                 object_path, object_info)
     except NotFound:
         LOG.info(
             "%s skipped! This object wasn't found. Adding to excluded objects list so it will no longer be considered.",
             object_path)
-        excluded_output.put({"resourceName": resourceName})
+        excluded_output.put({"resourceName": resource_name})
 
 
 def evaluate_objects(config):
@@ -208,7 +210,8 @@ def evaluate_objects(config):
             object_path = "/".join(["gs:/", bucket_name, object_name])
             if should_archive(timedelta, object_path, config):
                 archive_object(row.resourceName, bucket_name, object_name,
-                            object_path, config, moved_output, excluded_output)
+                               object_path, config, moved_output,
+                               excluded_output)
             work_queue.task_done()
 
     # Start all worker threads
