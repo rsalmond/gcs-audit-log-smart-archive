@@ -292,6 +292,7 @@ def evaluate_objects(config):
         work_queue.put(row)
 
     # wait for all of the row jobs to complete
+    LOG.info("All work enqueued. Waiting for last jobs to complete.")
     work_queue.join()
 
     # shutdown workers
