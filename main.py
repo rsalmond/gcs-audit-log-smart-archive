@@ -42,7 +42,8 @@ def get_moved_objects_output(config):
             resourceName STRING, 
             storageClass STRING,
             size INT64,
-            archiveTimestamp TIMESTAMP
+            blobCreatedTimeWhenMoved TIMESTAMP,
+            moveTimestamp TIMESTAMP
         """
     return BigQueryOutput(config, moved_objects_table, schema)
 
@@ -102,10 +103,10 @@ def query_access_table(config):
     INNER JOIN (
         SELECT
             resourceName as object,
-            MAX(archiveTimestamp) as most_recent
+            MAX(moveTimestamp) as most_recent
         FROM
             {1}
-        GROUP BY resourceName) as y on y.most_recent = z.archiveTimestamp)
+        GROUP BY resourceName) as y on y.most_recent = z.moveTimestamp)
 
     SELECT a.resourceName, b.storageClass, lastAccess, recent_access_count FROM (
         SELECT REGEXP_REPLACE(protopayload_auditlog.resourceName, "gs://.*/", "") AS resourceName,
@@ -213,6 +214,10 @@ def rewrite_object(row, config, storage_class, moved_output, excluded_output):
         gcs = get_gcs_client(config)
         bucket = storage.bucket.Bucket(gcs, name=bucket_name)
         blob = storage.blob.Blob(object_name, bucket)
+        current_create_time = None
+        if config["RECORD_ORIGINAL_CREATE_TIME"]:
+            blob_info = bucket.get_blob(object_name)
+            current_create_time = blob_info.time_created if blob_info else None
         LOG.info("%s%s rewriting to: %s", "DRY RUN: " if dry_run else "",
                  object_path, storage_class)
         if not dry_run:
@@ -222,7 +227,8 @@ def rewrite_object(row, config, storage_class, moved_output, excluded_output):
             "storageClass": storage_class,
             "resourceName": row.resourceName,
             "size": blob.size,
-            "archiveTimestamp": str(datetime.now(timezone.utc))
+            "blobCreatedTimeWhenMoved": str(current_create_time),
+            "moveTimestamp": str(datetime.now(timezone.utc))
         }
         moved_output.put(object_info)
         LOG.info("%s new storage class queued for write to BQ: \n%s",
