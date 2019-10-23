@@ -178,18 +178,18 @@ def should_cool_down(row, config):
     if 'SECONDS_THRESHOLD' in config:
         # If present, SECONDS_THRESHOLD will override. Note this only works for seconds since midnight. This is only for development use.
         if timedelta.seconds >= int(config['SECONDS_THRESHOLD']):
-            LOG.info("%s last accessed %s ago, greater than %s second(s) ago",
+            LOG.info("%s last accessed %s ago, greater than %s second(s) ago, will cool down.",
                      object_path, timedelta, config['SECONDS_THRESHOLD'])
             return True
-        LOG.debug("%s last accessed %s ago, less than %s second(s) ago",
+        LOG.debug("%s last accessed %s ago, less than %s second(s) ago. will not cool down.",
                   object_path, timedelta, config['SECONDS_THRESHOLD'])
         return False
     else:
         if timedelta.days >= int(config['COLD_THRESHOLD_DAYS']):
-            LOG.info("%s last accessed %s ago, greater than %s days(s) ago",
+            LOG.info("%s last accessed %s ago, greater than %s days(s) ago, will cool down.",
                      object_path, timedelta, config['COLD_THRESHOLD_DAYS'])
             return True
-        LOG.debug("%s last accessed %s ago, less than %s days(s) ago",
+        LOG.debug("%s last accessed %s ago, less than %s days(s) ago, will not cool down.",
                   object_path, timedelta, config['COLD_THRESHOLD_DAYS'])
         return False
 
@@ -272,14 +272,17 @@ def evaluate_objects(config):
         moved_output.flush()
         excluded_output.flush()
         # Print statistics
+        LOG.info("%s rows read.", rows_read)
         LOG.info(moved_output.stats())
         LOG.info(excluded_output.stats())
 
     register(cleanup)
 
+    rows_read = 0
     # Enqueue all work
     last_accesses = query_access_table(config)
     for row in last_accesses:
+        rows_read += 1
         work_queue.put(row)
 
     # wait for all of the row jobs to complete
