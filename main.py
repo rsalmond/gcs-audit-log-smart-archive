@@ -110,7 +110,7 @@ def query_access_table(config):
     SELECT a.resourceName, b.storageClass, lastAccess, recent_access_count FROM (
         SELECT REGEXP_REPLACE(protopayload_auditlog.resourceName, "gs://.*/", "") AS resourceName,
         MAX(timestamp) AS lastAccess,
-        COUNTIF(TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), timestamp, DAY) <= {5}) AS recent_access_count
+        COUNTIF(TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), timestamp, DAY) <= {4}) AS recent_access_count
         FROM {0}
         WHERE
             _TABLE_SUFFIX BETWEEN 
@@ -120,12 +120,11 @@ def query_access_table(config):
     AS a 
     LEFT JOIN most_recent_moves as b ON a.resourceName = b.resourceName
     LEFT JOIN {2} as c ON a.resourceName = c.resourceName
-    WHERE c.resourceName IS NULL AND
-    TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), lastAccess, DAY) <= {4}
+    WHERE c.resourceName IS NULL
     """.format(
         access_log_tables, moved_objects_table, excluded_objects_table,
         int(config["COLD_THRESHOLD_DAYS"]) + int(config["DAYS_BETWEEN_RUNS"]),
-        int(config["COLD_THRESHOLD_DAYS"]), int(config['WARM_THRESHOLD_DAYS']))
+        int(config['WARM_THRESHOLD_DAYS']))
     LOG.debug("Query: %s", querytext)
     query_job = bqc.query(querytext)
     return query_job.result()
