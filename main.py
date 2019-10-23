@@ -60,7 +60,7 @@ def get_excluded_objects_output(config):
         concurrent.futures.TimeoutError –- If the job did not complete in the
         given timeout.
     """
-    excluded_objects_table = "{}.{}.objects_excluded_from_archive".format(
+    excluded_objects_table = "{}.{}.objects_excluded".format(
         config["BQ_JOB_PROJECT"] if "BQ_JOB_PROJECT" in config else
         config["PROJECT"], config['DATASET_NAME'])
     schema = "resourceName STRING"
@@ -91,7 +91,7 @@ def query_access_table(config):
     moved_objects_table = "`{}.{}.objects_moved`".format(
         config['PROJECT'], config['DATASET_NAME'])
 
-    excluded_objects_table = "`{}.{}.objects_excluded_from_archive`".format(
+    excluded_objects_table = "`{}.{}.objects_excluded`".format(
         config['PROJECT'], config['DATASET_NAME'])
 
     querytext = """
