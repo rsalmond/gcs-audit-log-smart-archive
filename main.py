@@ -95,37 +95,58 @@ def query_access_table(config):
     excluded_objects_table = "`{}.{}.objects_excluded`".format(
         config['PROJECT'], config['DATASET_NAME'])
 
-    querytext = """
-    WITH most_recent_moves AS (SELECT
-        z.*
-    FROM
-        {1} AS z
-    INNER JOIN (
-        SELECT
-            resourceName as object,
-            MAX(moveTimestamp) as most_recent
-        FROM
-            {1}
-        GROUP BY resourceName) as y on y.most_recent = z.moveTimestamp)
+    catch_up_union = ""
+    if 'CATCHUP_TABLE' in config:
+        catchup_table = "`{}.{}.{}`".format(config['PROJECT'],
+                                            config['DATASET_NAME'],
+                                            config['CATCHUP_TABLE'])
+        catch_up_union = """
+            UNION ALL
+            SELECT
+                REGEXP_REPLACE(url,"gs://(.*)/(.*)","projects/_/buckets/{1}1/objects/{1}2") AS resourceName,
+                created AS timestamp
+            FROM
+                {0}
+        """.format(catchup_table, "\\\\")
 
-    SELECT a.resourceName, b.storageClass, lastAccess, recent_access_count FROM (
-        SELECT REGEXP_REPLACE(protopayload_auditlog.resourceName, "gs://.*/", "") AS resourceName,
-        MAX(timestamp) AS lastAccess,
-        COUNTIF(TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), timestamp, DAY) <= {4}) AS recent_access_count
-        FROM {0}
-        WHERE
-            _TABLE_SUFFIX BETWEEN 
-            FORMAT_DATE("%Y%m%d", DATE_SUB(CURRENT_DATE(), INTERVAL {3} DAY)) AND
-            FORMAT_DATE("%Y%m%d", CURRENT_DATE())
-        GROUP BY resourceName) 
-    AS a 
-    LEFT JOIN most_recent_moves as b ON a.resourceName = b.resourceName
-    LEFT JOIN {2} as c ON a.resourceName = c.resourceName
-    WHERE c.resourceName IS NULL
+    querytext = """
+WITH 
+most_recent_moves AS (SELECT
+    z.*
+FROM
+    {1} AS z
+INNER JOIN (
+    SELECT
+        resourceName as object,
+        MAX(moveTimestamp) as most_recent
+    FROM
+        {1}
+    GROUP BY resourceName) as y on y.most_recent = z.moveTimestamp)
+,
+access_records AS (SELECT
+    REGEXP_REPLACE(protopayload_auditlog.resourceName, "gs://.*/", "") AS resourceName,
+    timestamp
+  FROM {0}
+  WHERE
+    _TABLE_SUFFIX BETWEEN FORMAT_DATE("%Y%m%d", DATE_SUB(CURRENT_DATE(), INTERVAL {3} DAY))
+    AND FORMAT_DATE("%Y%m%d", CURRENT_DATE())
+  {5}
+)
+
+SELECT a.resourceName, b.storageClass, lastAccess, recent_access_count FROM (
+    SELECT resourceName,
+    MAX(timestamp) AS lastAccess,
+    COUNTIF(TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), timestamp, DAY) <= {4}) AS recent_access_count
+    FROM access_records
+    GROUP BY resourceName)
+AS a 
+LEFT JOIN most_recent_moves as b ON a.resourceName = b.resourceName
+LEFT JOIN {2} as c ON a.resourceName = c.resourceName
+WHERE c.resourceName IS NULL
     """.format(
         access_log_tables, moved_objects_table, excluded_objects_table,
         int(config["COLD_THRESHOLD_DAYS"]) + int(config["DAYS_BETWEEN_RUNS"]),
-        int(config['WARM_THRESHOLD_DAYS']))
+        int(config['WARM_THRESHOLD_DAYS']), catch_up_union)
     LOG.debug("Query: %s", querytext)
     query_job = bqc.query(querytext)
     return query_job.result()
@@ -179,19 +200,23 @@ def should_cool_down(row, config):
     if 'SECONDS_THRESHOLD' in config:
         # If present, SECONDS_THRESHOLD will override. Note this only works for seconds since midnight. This is only for development use.
         if timedelta.seconds >= int(config['SECONDS_THRESHOLD']):
-            LOG.info("%s last accessed %s ago, greater than %s second(s) ago, will cool down.",
-                     object_path, timedelta, config['SECONDS_THRESHOLD'])
+            LOG.info(
+                "%s last accessed %s ago, greater than %s second(s) ago, will cool down.",
+                object_path, timedelta, config['SECONDS_THRESHOLD'])
             return True
-        LOG.debug("%s last accessed %s ago, less than %s second(s) ago. will not cool down.",
-                  object_path, timedelta, config['SECONDS_THRESHOLD'])
+        LOG.debug(
+            "%s last accessed %s ago, less than %s second(s) ago. will not cool down.",
+            object_path, timedelta, config['SECONDS_THRESHOLD'])
         return False
     else:
         if timedelta.days >= int(config['COLD_THRESHOLD_DAYS']):
-            LOG.info("%s last accessed %s ago, greater than %s days(s) ago, will cool down.",
-                     object_path, timedelta, config['COLD_THRESHOLD_DAYS'])
+            LOG.info(
+                "%s last accessed %s ago, greater than %s days(s) ago, will cool down.",
+                object_path, timedelta, config['COLD_THRESHOLD_DAYS'])
             return True
-        LOG.debug("%s last accessed %s ago, less than %s days(s) ago, will not cool down.",
-                  object_path, timedelta, config['COLD_THRESHOLD_DAYS'])
+        LOG.debug(
+            "%s last accessed %s ago, less than %s days(s) ago, will not cool down.",
+            object_path, timedelta, config['COLD_THRESHOLD_DAYS'])
         return False
 
 
@@ -215,7 +240,8 @@ def rewrite_object(row, config, storage_class, moved_output, excluded_output):
         bucket = storage.bucket.Bucket(gcs, name=bucket_name)
         blob = storage.blob.Blob(object_name, bucket)
         current_create_time = None
-        if config["RECORD_ORIGINAL_CREATE_TIME"]:
+        if "RECORD_ORIGINAL_CREATE_TIME" in config:
+            LOG.debug("Getting original blob info.")
             blob_info = bucket.get_blob(object_name)
             current_create_time = blob_info.time_created if blob_info else None
         LOG.info("%s%s rewriting to: %s", "DRY RUN: " if dry_run else "",
@@ -227,9 +253,11 @@ def rewrite_object(row, config, storage_class, moved_output, excluded_output):
             "storageClass": storage_class,
             "resourceName": row.resourceName,
             "size": blob.size,
-            "blobCreatedTimeWhenMoved": str(current_create_time),
             "moveTimestamp": str(datetime.now(timezone.utc))
         }
+        if current_create_time:
+            object_info.update(
+                {"blobCreatedTimeWhenMoved": str(current_create_time)})
         moved_output.put(object_info)
         LOG.info("%s new storage class queued for write to BQ: \n%s",
                  object_path, object_info)
