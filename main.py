@@ -331,8 +331,9 @@ def evaluate_objects(config):
 
 
 def find_config_file(args):
-    if args.config_file:
-        return args.config_file
+    if hasattr(args, 'config_file'):
+        if args.config_file:
+            return args.config_file
     elif getenv("SMART_ARCHIVE_CONFIG"):
         return getenv("SMART_ARCHIVE_CONFIG")
     return "./default.cfg"
