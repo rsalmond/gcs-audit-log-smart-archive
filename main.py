@@ -375,8 +375,7 @@ def archive_cold_objects(data, context):
         config = build_config()
         # set level at root logger
         if hasattr(logging, config.get('LOG_LEVEL')):
-            logging.getLogger("smart_archiver").setLevel(
-                getattr(logging, config.get('LOG_LEVEL')))
+            LOG.setLevel(getattr(logging, config.get('LOG_LEVEL')))
         else:
             print("Invalid log level specified: {}".format(
                 config.get('LOG_LEVEL')))
