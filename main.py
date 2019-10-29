@@ -155,9 +155,8 @@ WHERE c.resourceName IS NULL
         config['PROJECT'], config['DATASET_NAME'])
     query_job_config.destination = temp_table
     query_job_config.write_disposition = WriteDisposition.WRITE_TRUNCATE
-    bqc.delete_table(temp_table, not_found_ok=True)
     query_job = bqc.query(query=querytext, job_config=query_job_config)
-    bqc.delete_table(temp_table, not_found_ok=True)
+    
     return query_job.result()
 
 
