@@ -10,6 +10,7 @@ from queue import Queue
 
 from google.api_core.exceptions import NotFound
 from google.cloud import storage
+from google.cloud.bigquery.job import QueryJobConfig, WriteDisposition
 
 from helpers import (BigQueryOutput, event_is_fresh, get_bq_client,
                      get_bucket_and_object, get_gcs_client, load_config_file)
@@ -148,7 +149,15 @@ WHERE c.resourceName IS NULL
         int(config["COLD_THRESHOLD_DAYS"]) + int(config["DAYS_BETWEEN_RUNS"]),
         int(config['WARM_THRESHOLD_DAYS']), catch_up_union)
     LOG.debug("Query: %s", querytext)
-    query_job = bqc.query(querytext)
+
+    query_job_config = QueryJobConfig()
+    temp_table = "{}.{}.smart_archive_temp".format(
+        config['PROJECT'], config['DATASET_NAME'])
+    query_job_config.destination = temp_table
+    query_job_config.write_disposition = WriteDisposition.WRITE_TRUNCATE
+    bqc.delete_table(temp_table, not_found_ok=True)
+    query_job = bqc.query(query=querytext, job_config=query_job_config)
+    bqc.delete_table(temp_table, not_found_ok=True)
     return query_job.result()
 
 
@@ -240,7 +249,8 @@ def rewrite_object(row, config, storage_class, moved_output, excluded_output):
         bucket = storage.bucket.Bucket(gcs, name=bucket_name)
         blob = storage.blob.Blob(object_name, bucket)
         current_create_time = None
-        if "RECORD_ORIGINAL_CREATE_TIME" in config:
+        if not dry_run and "RECORD_ORIGINAL_CREATE_TIME" in config:
+            # Get the blob info. Skip this on a dry run, as it creates an access record.
             LOG.debug("Getting original blob info.")
             blob_info = bucket.get_blob(object_name)
             current_create_time = blob_info.time_created if blob_info else None
