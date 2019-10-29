@@ -62,13 +62,19 @@ def load_config_file(filepath, required=[], defaults={}):
     return config
 
 
+clients = {}
+
+
 def get_bq_client(config):
     """Get a BigQuery client. 
 
     Returns:     google.cloud.bigquery.Client -- A BigQuery client.
     """
-    return bigquery.Client(project=config["BQ_JOB_PROJECT"] if "BQ_JOB_PROJECT"
-                           in config else config["PROJECT"])
+    if 'bq' not in clients:
+        clients['bq'] = bigquery.Client(
+            project=config["BQ_JOB_PROJECT"] if "BQ_JOB_PROJECT" in
+            config else config["PROJECT"])
+    return clients['bq']
 
 
 def get_gcs_client(config):
@@ -76,7 +82,9 @@ def get_gcs_client(config):
 
     Returns:     google.cloud.storage.Client -- A GCS client.
     """
-    return storage.Client(project=config["PROJECT"])
+    if 'gcs' not in clients:
+        clients['gcs'] = storage.Client(project=config["PROJECT"])
+    return clients['gcs']
 
 
 def get_bucket_and_object(resource_name):
@@ -155,7 +163,8 @@ class BigQueryOutput():
             self.rows = list()
 
     def stats(self):
-        return "{} rows inserted into {}".format(self.insert_count, self.tablename)
+        return "{} rows inserted into {}".format(self.insert_count,
+                                                 self.tablename)
 
 
 def flatten(iterable, iter_types=(list, tuple)):
