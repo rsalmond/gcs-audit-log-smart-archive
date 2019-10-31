@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import logging
+import time
 import warnings
 from atexit import register
 from threading import Thread
@@ -8,7 +9,7 @@ from datetime import datetime, timezone
 from os import getenv
 from queue import Queue
 
-from google.api_core.exceptions import NotFound
+from google.api_core.exceptions import NotFound, ServiceUnavailable, TooManyRequests
 from google.cloud import storage
 from google.cloud.bigquery.job import QueryJobConfig, WriteDisposition
 
@@ -21,6 +22,8 @@ warnings.filterwarnings(
 logging.basicConfig()
 LOG = logging.getLogger("smart_archiver." + __name__)
 
+BACKOFF_SECONDS = 2
+MAX_RETRIES = 10
 
 def get_moved_objects_output(config):
     """Creates, if not found, a table in which objects moved by this script to
@@ -243,38 +246,54 @@ def rewrite_object(row, config, storage_class, moved_output, excluded_output):
     bucket_name, object_name = get_bucket_and_object(row.resourceName)
     object_path = "/".join(["gs:/", bucket_name, object_name])
     dry_run = config["DRY_RUN"]
-    try:
-        gcs = get_gcs_client(config)
-        bucket = storage.bucket.Bucket(gcs, name=bucket_name)
-        blob = storage.blob.Blob(object_name, bucket)
-        current_create_time = None
-        if not dry_run and "RECORD_ORIGINAL_CREATE_TIME" in config:
-            # Get the blob info. Skip this on a dry run, as it creates an access record.
-            LOG.debug("Getting original blob info.")
-            blob_info = bucket.get_blob(object_name)
-            current_create_time = blob_info.time_created if blob_info else None
-        LOG.info("%s%s rewriting to: %s", "DRY RUN: " if dry_run else "",
-                 object_path, storage_class)
-        if not dry_run:
-            blob.update_storage_class(storage_class, gcs)
-            LOG.debug("%s rewrite to %s complete.", object_path, storage_class)
-        object_info = {
-            "storageClass": storage_class,
-            "resourceName": row.resourceName,
-            "size": blob.size,
-            "moveTimestamp": str(datetime.now(timezone.utc))
-        }
-        if current_create_time:
-            object_info.update(
-                {"blobCreatedTimeWhenMoved": str(current_create_time)})
-        moved_output.put(object_info)
-        LOG.info("%s new storage class queued for write to BQ: \n%s",
-                 object_path, object_info)
-    except NotFound:
-        LOG.info(
-            "%s skipped! This object wasn't found. Adding to excluded objects list so it will no longer be considered.",
-            object_path)
-        excluded_output.put({"resourceName": row.resourceName})
+    retry_delay = 0
+    retry_count = 0
+    while True:
+        try:
+            gcs = get_gcs_client(config)
+            bucket = storage.bucket.Bucket(gcs, name=bucket_name)
+            blob = storage.blob.Blob(object_name, bucket)
+            current_create_time = None
+            if not dry_run and "RECORD_ORIGINAL_CREATE_TIME" in config:
+                # Get the blob info. Skip this on a dry run, as it creates an access record.
+                LOG.debug("Getting original blob info.")
+                blob_info = bucket.get_blob(object_name)
+                current_create_time = blob_info.time_created if blob_info else None
+            LOG.info("%s%s rewriting to: %s", "DRY RUN: " if dry_run else "",
+                     object_path, storage_class)
+            if not dry_run:
+                blob.update_storage_class(storage_class, gcs)
+                LOG.debug("%s rewrite to %s complete.", object_path, storage_class)
+            object_info = {
+                "storageClass": storage_class,
+                "resourceName": row.resourceName,
+                "size": blob.size,
+                "moveTimestamp": str(datetime.now(timezone.utc))
+            }
+            if current_create_time:
+                object_info.update(
+                    {"blobCreatedTimeWhenMoved": str(current_create_time)})
+            moved_output.put(object_info)
+            LOG.info("%s new storage class queued for write to BQ: \n%s",
+                     object_path, object_info)
+        except (ServiceUnavailable, TooManyRequests) as e:
+            retry_count += 1
+            if retry_count >= MAX_RETRIES:
+                LOG.exception("%s failed! API error while updating storage class.")
+                break
+
+            retry_delay += BACKOFF_SECONDS
+            time.sleep(retry_delay)
+            continue
+        except NotFound:
+            LOG.info(
+                "%s skipped! This object wasn't found. Adding to excluded objects list so it will no longer be considered.",
+                object_path)
+            excluded_output.put({"resourceName": row.resourceName})
+
+            break
+
+        break
 
 
 def evaluate_objects(config):
