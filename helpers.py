@@ -57,7 +57,7 @@ def load_config_file(filepath, required=[], defaults={}):
     # quick validation
     for r in required:
         if r not in config.keys() or config[r] == "CONFIGURE_ME":
-            LOG.info('Missing required config item: {}'.format(r))
+            LOG.error('Missing required config item: {}'.format(r))
             exit(1)
     return config
 
