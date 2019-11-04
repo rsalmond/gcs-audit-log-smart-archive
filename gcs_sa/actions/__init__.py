@@ -16,9 +16,11 @@ Key actions taken during the smart archiver run. These mostly involve GCS API
 calls.
 """
 import logging
+import time
 from datetime import datetime, timezone
 
-from google.api_core.exceptions import NotFound
+from google.api_core.exceptions import (NotFound, ServiceUnavailable,
+                                        TooManyRequests)
 from google.cloud import storage
 from google.cloud.bigquery import Row
 
@@ -46,44 +48,67 @@ def rewrite_object(row: Row, storage_class: str, moved_output: BigQueryOutput,
     dry_run = config.getboolean("RUNTIME", "DRY_RUN", fallback=False)
     record_original_create_time = config.getboolean(
         "RULES", "RECORD_ORIGINAL_CREATE_TIME", fallback=False)
+    # TODO: Add these to the config file
+    backoff_seconds = 2
+    max_retries = 10
 
     bucket_name, object_name = get_bucket_and_object(row.resourceName)
     object_path = "/".join(["gs:/", bucket_name, object_name])
 
-    try:
-        gcs = get_gcs_client()
-        bucket = storage.bucket.Bucket(gcs, name=bucket_name)
-        blob = storage.blob.Blob(object_name, bucket)
-        current_create_time = None
-        if record_original_create_time and not dry_run:
-            # Get the blob info. Skip this on a dry run, as it creates 
-            # an access record.
-            LOG.debug("Getting original blob info.")
-            blob_info = bucket.get_blob(object_name)
-            current_create_time = blob_info.time_created if blob_info else None
+    retry_delay = 0
+    retry_count = 0
 
-        LOG.info("%s%s rewriting to: %s", "DRY RUN: " if dry_run else "",
-                 object_path, storage_class)
-        if not dry_run:
-            blob.update_storage_class(storage_class, gcs)
-            LOG.debug("%s rewrite to %s complete.", object_path, storage_class)
+    while True:
+        try:
+            gcs = get_gcs_client()
+            bucket = storage.bucket.Bucket(gcs, name=bucket_name)
+            blob = storage.blob.Blob(object_name, bucket)
+            current_create_time = None
+            if record_original_create_time and not dry_run:
+                # Get the blob info. Skip this on a dry run, as it creates
+                # an access record.
+                LOG.debug("Getting original blob info.")
+                blob_info = bucket.get_blob(object_name)
+                current_create_time = blob_info.time_created \
+                    if blob_info else None
 
-        object_info = {
-            "storageClass": storage_class,
-            "resourceName": row.resourceName,
-            "size": blob.size,
-            "moveTimestamp": str(datetime.now(timezone.utc))
-        }
-        if current_create_time:
-            object_info.update(
-                {"blobCreatedTimeWhenMoved": str(current_create_time)})
+            LOG.info("%s%s rewriting to: %s", "DRY RUN: " if dry_run else "",
+                     object_path, storage_class)
+            if not dry_run:
+                blob.update_storage_class(storage_class, gcs)
+                LOG.debug("%s rewrite to %s complete.", object_path,
+                          storage_class)
 
-        moved_output.put(object_info)
-        LOG.info("%s object move record queued for write to BQ: \n%s",
-                 object_path, object_info)
+            object_info = {
+                "storageClass": storage_class,
+                "resourceName": row.resourceName,
+                "size": blob.size,
+                "moveTimestamp": str(datetime.now(timezone.utc))
+            }
+            if current_create_time:
+                object_info.update(
+                    {"blobCreatedTimeWhenMoved": str(current_create_time)})
 
-    except NotFound:
-        LOG.info(
-            "%s skipped! This object wasn't found. Adding to excluded objects"
-            " list so it will no longer be considered.", object_path)
-        excluded_output.put({"resourceName": row.resourceName})
+            moved_output.put(object_info)
+            LOG.info("%s object move record queued for write to BQ: \n%s",
+                     object_path, object_info)
+
+        except (ServiceUnavailable, TooManyRequests):
+            retry_count += 1
+            if retry_count >= max_retries:
+                LOG.exception(
+                    "%s failed! API error while updating storage class.")
+                break
+            retry_delay += backoff_seconds
+            time.sleep(retry_delay)
+            continue
+
+        except NotFound:
+            LOG.info(
+                "%s skipped! This object wasn't found. Adding to "
+                "excluded objects list so it will no longer be "
+                "considered.", object_path)
+            excluded_output.put({"resourceName": row.resourceName})
+            break
+
+        break
