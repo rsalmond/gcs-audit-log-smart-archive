@@ -1,14 +1,22 @@
+# Copyright 2019 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 CONFIG_FILE=$(shell if [ -z $$SMART_ARCHIVE_CONFIG ]; then echo default.cfg; else echo $$SMART_ARCHIVE_CONFIG; fi)
 PROJECT=$(shell cat $(CONFIG_FILE) | grep PROJECT | cut -d '=' -f 2)
 DATASET_NAME=$(shell cat $(CONFIG_FILE) | grep DATASET_NAME | cut -d '=' -f 2)
-SCHEDULING_TOPIC=$(shell cat $(CONFIG_FILE) | grep SCHEDULING_TOPIC | cut -d '=' -f 2)
-SCHEDULED_JOB_NAME=$(shell cat $(CONFIG_FILE) | grep SCHEDULED_JOB_NAME | cut -d '=' -f 2)
-SCHEDULE_CRON=$(shell cat $(CONFIG_FILE) | grep SCHEDULE_CRON | cut -d '=' -f 2)
-FUNCTION_NAME=$(shell cat $(CONFIG_FILE) | grep FUNCTION_NAME | cut -d '=' -f 2)
-FUNCTION_MEMORY=$(shell cat $(CONFIG_FILE) | grep FUNCTION_MEMORY | cut -d '=' -f 2)
 
-default: step_explain step_set_up_audit_logging step_set_up_bq_log_sink step_set_up_cloud_function step_set_up_cloud_scheduler
-
+default: step_explain step_set_up_audit_logging step_set_up_bq_log_sink 
 
 CHECK_CONTINUE = \
 	read -p "Continue? (Y/n) " continue; \
@@ -101,33 +109,10 @@ step_set_up_bq_log_sink:
 	@touch step_set_up_bq_log_sink
 
 
-step_set_up_cloud_function:
-	@$(call MESSAGE, Next$(,) we deploy a cloud function to evaluate objects for archive when it gets a scheduled message.)
-	@$(CHECK_CONTINUE) 
-	@echo
-	# make topic
-	gcloud pubsub topics create $(SCHEDULING_TOPIC)
-	# deploy function
-	gcloud functions deploy $(FUNCTION_NAME) --entry-point=archive_cold_objects --runtime python37 --trigger-topic $(SCHEDULING_TOPIC) --timeout 540s --memory $(FUNCTION_MEMORY) --max-instances 1
-	@$(call MESSAGE, Success! Run make again to deploy new code or configuration.)
-
-
-step_set_up_cloud_scheduler:
-	@$(call MESSAGE, Finally$(,) we will set up a cloud scheduler job to run the archive job periodically.)
-	@$(CHECK_CONTINUE) 
-	@echo
-	# make scheduled job
-	gcloud scheduler jobs create pubsub $(SCHEDULED_JOB_NAME) --schedule=$(SCHEDULE_CRON) --topic=$(SCHEDULING_TOPIC) --message-body="Time to archive objects!"
-	@$(call MESSAGE, Success!) 
-	@touch step_set_up_cloud_scheduler
-
-
 teardown:
 	@$(call MESSAGE, This will remove the smart archiver and supporting resources.)
 	@$(CHECK_CONTINUE) 
-	yes | gcloud scheduler jobs delete $(SCHEDULED_JOB_NAME)
-	yes | gcloud functions delete $(FUNCTION_NAME)
-	yes | gcloud pubsub topics delete $(SCHEDULING_TOPIC)
+
 	yes | gcloud logging sinks delete test_sink
 	yes | bq --location=US rm -r --dataset $(PROJECT):$(DATASET_NAME)
 

@@ -109,3 +109,4 @@ venv.bak/
 # local stuff
 ./step_*
 *.cfg
+old/
