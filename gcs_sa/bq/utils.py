@@ -33,4 +33,8 @@ def get_bucket_and_object(resource_name: str) -> Tuple[str, str]:
     bucket_name = pathparts[0]
     object_name = pathparts[1].split("objects/", 1)[1]
 
+    if object_name.endswith("/"):
+        # can happen when catch up table has been populated naively
+        object_name = None
+
     return (bucket_name, object_name)
