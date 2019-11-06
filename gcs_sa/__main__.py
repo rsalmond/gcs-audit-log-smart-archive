@@ -18,8 +18,8 @@ import logging
 import warnings
 import sys
 from atexit import register
+from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
-from threading import Thread
 
 from gcs_sa.actions import rewrite_object
 from gcs_sa.args import get_args
@@ -61,27 +61,6 @@ def evaluate_objects() -> None:
         TableDefinitions.OBJECTS_EXCLUDED))
     work_queue = Queue(maxsize=3000)
 
-    # evaluate, archive and record
-    def archive_worker():
-        while True:
-            row = work_queue.get()
-            if not row:
-                break
-            if should_warm_up(row):
-                rewrite_object(row, 'STANDARD', moved_output,
-                               excluded_output)
-            elif should_cool_down(row):
-                rewrite_object(row, cold_storage_class,
-                               moved_output, excluded_output)
-            work_queue.task_done()
-
-    # Start all worker threads
-    worker_threads = []
-    for _ in range(32):
-        thread = Thread(target=archive_worker)
-        thread.start()
-        worker_threads.append(thread)
-
     # Create temp table object. Doesn't need to be initialized.
     temp_table = Table("smart_archiver_temp")
 
@@ -103,20 +82,35 @@ def evaluate_objects() -> None:
     # Run query job
     job = run_query_job(compose_access_query(),
                         temp_table.get_fully_qualified_name())
-    # Enqueue all work
-    for row in job.result():
-        rows_read += 1
-        work_queue.put(row)
 
-    # wait for all of the row jobs to complete
-    LOG.info("All work enqueued. Waiting for last jobs to complete.")
-    work_queue.join()
+    # evaluate, archive and record
+    def archive_worker(name: str) -> None:
+        LOG.debug("Worker %s started.", name)
+        while True:
+            row = work_queue.get()
+            if not row:
+                break
+            if should_warm_up(row):
+                rewrite_object(row, 'STANDARD', moved_output,
+                               excluded_output)
+            elif should_cool_down(row):
+                rewrite_object(row, cold_storage_class,
+                               moved_output, excluded_output)
+        LOG.debug("Worker %s finished.", name)
 
-    # shutdown workers
-    for _ in range(32):
-        work_queue.put(None)
-    for thread in worker_threads:
-        thread.join()
+
+    workers = config.getint('RUNTIME', 'WORKERS')
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        # Start all worker threads
+        for worker_name in range(workers):
+            executor.submit(archive_worker, worker_name)
+        # Enqueue all work
+        for row in job.result():
+            rows_read += 1
+            work_queue.put(row)
+        # Signal completion to all workers
+        for _ in range(workers):
+            work_queue.put(None)
 
 
 if __name__ == "__main__":
