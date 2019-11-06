@@ -16,6 +16,7 @@ Google Cloud Storage smart archiver main entry point.
 """
 import logging
 import warnings
+import sys
 from atexit import register
 from queue import Queue
 from threading import Thread
@@ -116,3 +117,7 @@ def evaluate_objects() -> None:
         work_queue.put(None)
     for thread in worker_threads:
         thread.join()
+
+
+if __name__ == "__main__":
+    sys.exit(main())
