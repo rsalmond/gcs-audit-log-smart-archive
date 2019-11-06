@@ -21,6 +21,7 @@ arguments and config files.
 import io
 from argparse import Namespace
 from configparser import ConfigParser
+from gcs_sa.utils import memoize
 
 CONFIG = None
 
@@ -44,6 +45,7 @@ def get_config(args: Namespace = None) -> ConfigParser:
     if args:
         CONFIG = ConfigParser()
         CONFIG.read(args.config_file)
+    check_configured(CONFIG)
     return CONFIG
 
 
@@ -61,3 +63,24 @@ def config_to_string(config: ConfigParser) -> str:
     config.write(config_status)
     config_status.seek(0)
     return config_status.read()
+
+@memoize
+def check_configured(config: ConfigParser) -> None:
+    """Check that none of the values equal the sentinel "CONFIGURE_ME".
+
+    Arguments:
+        config {ConfigParser} -- The parsed configuration.
+
+    Returns:
+        None -- No errors were raised.
+
+    Raises:
+        ValueError -- Upon first encounter with a value == "CONFIGURE_ME".
+    """
+    for section in config.sections():
+        for option in config[section]:
+            value = config.get(section, option)
+            if value == "CONFIGURE_ME":
+                raise ValueError("Invalid configuration {}.{}={}".format
+                                 (section, option, value))
+    return
