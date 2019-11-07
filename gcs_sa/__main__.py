@@ -61,6 +61,7 @@ def evaluate_objects() -> None:
         TableDefinitions.OBJECTS_MOVED))
     excluded_output = BigQueryOutput(get_table(
         TableDefinitions.OBJECTS_EXCLUDED))
+    rows_read = 0
 
     # Create temp table object. Doesn't need to be initialized.
     temp_table = Table("smart_archiver_temp")
@@ -76,10 +77,8 @@ def evaluate_objects() -> None:
         LOG.info("%s rows read.", rows_read)
         LOG.info(moved_output.stats())
         LOG.info(excluded_output.stats())
-
     register(cleanup)
 
-    rows_read = 0
     # Run query job
     job = run_query_job(compose_access_query(),
                         temp_table.get_fully_qualified_name())
