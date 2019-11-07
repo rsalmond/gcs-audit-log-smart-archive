@@ -33,10 +33,10 @@ optional arguments:
                         Set log level. Overrides configuration.
 ```
 
-The bulk of control over the program is done through the configuration file. Review the comments in [`default.cfg`](blob/master/default.cfg) for more information about configuration items.
+The bulk of control over the program is done through the configuration file. Review the comments in [`default.cfg`](/default.cfg) for more information about configuration items.
 
 # License
-Apache 2.0 - See [the LICENSE](blob/master/LICENSE) for more information.
+Apache 2.0 - See [the LICENSE](/LICENSE) for more information.
 
 # Copyright
 Copyright 2019 Google LLC.
