@@ -61,8 +61,10 @@ def evaluate_objects() -> None:
         TableDefinitions.OBJECTS_EXCLUDED))
     work_queue = Queue(maxsize=3000)
 
-    # Create temp table object. Doesn't need to be initialized.
-    temp_table = Table("smart_archiver_temp")
+    # Create temp table object. Doesn't need to be initialized, as the 
+    # query job will do that.
+    temp_table = Table(
+        config.get('BIGQUERY', 'TEMP_TABLE', fallback='smart_archiver_temp'))
 
     # Register cleanup as shutdown hook
     def cleanup():
