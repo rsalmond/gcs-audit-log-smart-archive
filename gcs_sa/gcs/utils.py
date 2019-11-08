@@ -48,6 +48,4 @@ def check_redundant_rewrite(destination_class: str,
     """
     destination_class = destination_class.upper()
     origination_class = origination_class.upper()
-    if origination_class in STORAGE_CLASS_MAPPING[destination_class]:
-        return True
-    return False
+    return origination_class in STORAGE_CLASS_MAPPING[destination_class]

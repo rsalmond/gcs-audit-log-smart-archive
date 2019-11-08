@@ -86,7 +86,7 @@ def rewrite_object(row: Row, storage_class: str, moved_output: BigQueryOutput,
                 # isn't redundant to avoid any unwelcome fees.
                 if check_redundant_rewrite(storage_class,
                                            blob_info.storage_class):
-                    LOG.info("Looks like this object is already in the right storage class. Skipping.")
+                    LOG.info("Looks like %s is already in %s class. Skipping.", object_path, storage_class)
                     break
 
             LOG.info("%s%s rewriting to: %s", "DRY RUN: " if dry_run else "",
