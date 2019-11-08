@@ -29,6 +29,7 @@ from gcs_sa.bq.output import BigQueryOutput
 from gcs_sa.bq.utils import get_bucket_and_object
 from gcs_sa.config import get_config
 from gcs_sa.gcs.client import get_gcs_client
+from gcs_sa.gcs.utils import check_redundant_rewrite
 
 LOG = logging.getLogger(__name__)
 
@@ -56,7 +57,9 @@ def rewrite_object(row: Row, storage_class: str, moved_output: BigQueryOutput,
     bucket_name, object_name = get_bucket_and_object(row.resourceName)
 
     if None in (bucket_name, object_name):
-        LOG.error("Unable to determine bucket and object name for row with resourceName: {}. Skipping.".format(row.resourceName))
+        LOG.error(
+            "Unable to determine bucket and object name for row with resourceName: {}. Skipping."
+            .format(row.resourceName))
         return
 
     object_path = "/".join(["gs:/", bucket_name, object_name])
@@ -73,10 +76,18 @@ def rewrite_object(row: Row, storage_class: str, moved_output: BigQueryOutput,
             if record_original_create_time and not dry_run:
                 # Get the blob info. Skip this on a dry run, as it creates
                 # an access record.
-                LOG.debug("Getting original blob info for object {} in bucket {}.".format(object_name, bucket_name))
+                LOG.debug(
+                    "Getting original blob info for object {} in bucket {}.".
+                    format(object_name, bucket_name))
                 blob_info = bucket.get_blob(object_name)
                 current_create_time = blob_info.time_created \
                     if blob_info else None
+                # While we are here and have the info, check that this rewrite
+                # isn't redundant to avoid any unwelcome fees.
+                if check_redundant_rewrite(storage_class,
+                                           blob_info.storage_class):
+                    LOG.info("Looks like %s is already in %s class. Skipping.", object_path, storage_class)
+                    break
 
             LOG.info("%s%s rewriting to: %s", "DRY RUN: " if dry_run else "",
                      object_path, storage_class)
@@ -99,7 +110,8 @@ def rewrite_object(row: Row, storage_class: str, moved_output: BigQueryOutput,
             LOG.info("%s object move record queued for write to BQ: \n%s",
                      object_path, object_info)
 
-        except (ServiceUnavailable, TooManyRequests, InternalServerError, BadGateway):
+        except (ServiceUnavailable, TooManyRequests, InternalServerError,
+                BadGateway):
             retry_count += 1
             if retry_count >= max_retries:
                 LOG.exception(
