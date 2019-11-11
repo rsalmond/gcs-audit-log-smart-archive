@@ -115,7 +115,7 @@ def rewrite_object(row: Row, storage_class: str, moved_output: BigQueryOutput,
             retry_count += 1
             if retry_count >= max_retries:
                 LOG.exception(
-                    "%s failed! API error while updating storage class.")
+                    "API error while updating storage class for object {}.".format(object_path))
                 break
             retry_delay += backoff_seconds
             time.sleep(retry_delay)
