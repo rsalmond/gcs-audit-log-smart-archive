@@ -37,26 +37,17 @@ ORDER BY hour_moved DESC
 In debug mode, the Smart Archiver will emit all SQL queries it makes. However, these can be complex. You can get an idea of what input went into a Smart Archiver decision by looking at (and filtering) the results of this query, which should be easier to reason about:
 
 ```sql
-WITH
-  raw_access_records AS (
-    -- Get the raw records, filtered down to the range we need.
-  SELECT
-    protopayload_auditlog.resourceName AS resourceName,
-    timestamp
-  FROM
-    `myproject.mydataset.cloudaudit_googleapis_com_data_access_*`
-  WHERE
-    -- Limit the query to the last 30 days.
-    _TABLE_SUFFIX BETWEEN FORMAT_DATE("%Y%m%d", DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY))
-    AND FORMAT_DATE("%Y%m%d", CURRENT_DATE()))
-    
 -- Grouped by resourceName, get the latest access and the number of accesses in a recent window.
 SELECT
-  resourceName,
+  protopayload_auditlog.resourceName AS resourceName,
   MAX(timestamp) AS lastAccess,
   COUNTIF(TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), timestamp, DAY) <= 3) AS recent_access_count
 FROM
-  raw_access_records
+  `myproject.mydataset.cloudaudit_googleapis_com_data_access_*`
+WHERE
+  -- Limit the query to the last 30 days.
+  _TABLE_SUFFIX BETWEEN FORMAT_DATE("%Y%m%d", DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY))
+  AND FORMAT_DATE("%Y%m%d", CURRENT_DATE())
 GROUP BY
   resourceName
 ```
