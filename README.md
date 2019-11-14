@@ -21,7 +21,7 @@ For development, if you want to be able to make modifications to the repo and ru
 
 For basic usage, run with the `-h` or `--help` switch.
 
-```shell
+```
 $ gcs_sa --help
 usage: gcs_sa [-h] [-c CONFIG_FILE] [-l LOG_LEVEL]
 
