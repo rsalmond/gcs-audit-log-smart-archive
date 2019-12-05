@@ -24,6 +24,7 @@ from gcs_sa.config import get_config
 
 LOG = logging.getLogger(__name__)
 
+
 def run_query_job(querytext: str,
                   temp_table: str = None,
                   query_job_config: QueryJobConfig = QueryJobConfig()
@@ -94,6 +95,16 @@ def _calculate_day_partitions() -> int:
            config.getint('RULES', 'DAYS_BETWEEN_RUNS')
 
 
+def _get_cold_threshold_days() -> int:
+    """Retrieve the warm threshold days from the configuration.
+
+    Returns:
+        int -- Warm threshold days.
+    """
+    config = get_config()
+    return config.getint('RULES', 'COLD_THRESHOLD_DAYS')
+
+
 def _get_warm_threshold_days() -> int:
     """Retrieve the warm threshold days from the configuration.
 
@@ -102,6 +113,16 @@ def _get_warm_threshold_days() -> int:
     """
     config = get_config()
     return config.getint('RULES', 'WARM_THRESHOLD_DAYS')
+
+
+def _get_warm_threshold_accesses() -> int:
+    """Retrieve the warm threshold accesses from the configuration.
+
+    Returns:
+        int -- Warm threshold accesses.
+    """
+    config = get_config()
+    return config.getint('RULES', 'WARM_THRESHOLD_ACCESSES')
 
 
 def compose_access_query() -> str:
@@ -180,3 +201,29 @@ def compose_access_query() -> str:
                excluded_objects.get_fully_qualified_name())
 
     return querytext
+
+
+def compose_warmup_query() -> str:
+    """
+    Compose a query to get only objects that are warm-up candidates.
+
+    This is a slight modification of compose_access_query, as all the same
+    analysis must be done to compute these values, this simply filters the
+    results to focus the work on warmup candidates.
+    """
+    return compose_access_query() + """
+        AND recent_access_count >= {}
+    """.format(_get_warm_threshold_accesses())
+
+
+def compose_cooldown_query() -> str:
+    """
+    Compose a query to get only objects that are cool-down candidates.
+
+    This is a slight modification of compose_access_query, as all the same
+    analysis must be done to compute these values, this simply filters the
+    results to focus the work on warmup candidates.
+    """
+    return compose_access_query() + """
+        AND TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), lastAccess, DAY) >= {}
+    """.format(_get_cold_threshold_days())

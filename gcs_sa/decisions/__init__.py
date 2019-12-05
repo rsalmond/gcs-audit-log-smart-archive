@@ -63,7 +63,7 @@ def should_warm_up(row: Row) -> bool:
     # This data is not STANDARD, but it's also cold. Don't warm.
     LOG.debug(
         "%s accessed %s times in the last %s days, fewer than %s accesses."
-        "Will not warm.", object_path, row.recent_access_count,
+        " Will not warm.", object_path, row.recent_access_count,
         warm_threshold_days, warm_threshold_accesses)
     return False
 

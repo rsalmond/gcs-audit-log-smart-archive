@@ -56,7 +56,9 @@ def rewrite_object(row: Row, storage_class: str, moved_output: BigQueryOutput,
     bucket_name, object_name = get_bucket_and_object(row.resourceName)
 
     if None in (bucket_name, object_name):
-        LOG.error("Unable to determine bucket and object name for row with resourceName: {}. Skipping.".format(row.resourceName))
+        LOG.error(
+            "Unable to determine bucket and object name for row "
+            "with resourceName: %s. Skipping.", row.resourceName)
         return
 
     object_path = "/".join(["gs:/", bucket_name, object_name])
@@ -73,7 +75,9 @@ def rewrite_object(row: Row, storage_class: str, moved_output: BigQueryOutput,
             if record_original_create_time and not dry_run:
                 # Get the blob info. Skip this on a dry run, as it creates
                 # an access record.
-                LOG.debug("Getting original blob info for object {} in bucket {}.".format(object_name, bucket_name))
+                LOG.debug(
+                    "Getting original blob info for object %s in bucket %s.",
+                    object_name, bucket_name)
                 blob_info = bucket.get_blob(object_name)
                 current_create_time = blob_info.time_created \
                     if blob_info else None
@@ -99,7 +103,8 @@ def rewrite_object(row: Row, storage_class: str, moved_output: BigQueryOutput,
             LOG.info("%s object move record queued for write to BQ: \n%s",
                      object_path, object_info)
 
-        except (ServiceUnavailable, TooManyRequests, InternalServerError, BadGateway):
+        except (ServiceUnavailable, TooManyRequests, InternalServerError,
+                BadGateway):
             retry_count += 1
             if retry_count >= max_retries:
                 LOG.exception(

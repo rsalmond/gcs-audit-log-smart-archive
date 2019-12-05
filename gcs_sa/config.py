@@ -19,14 +19,24 @@ arguments and config files.
 # TODO: Validation, set_config for testing
 
 import io
-from argparse import Namespace
 from configparser import ConfigParser
+
 from gcs_sa.utils import memoize
 
-CONFIG = None
+
+class ConfigParserHolder():
+    """
+    Object to hold the configuration in this module.
+    """
+
+    def __init__(self):
+        self.config = None
 
 
-def get_config(args: Namespace = None) -> ConfigParser:
+CONFIG_HOLDER = ConfigParserHolder()
+
+
+def get_config(config_file: str = None) -> ConfigParser:
     """Get the configuration by locating a config file, and building a
     configuration with items from these sources, in ascending priority:
 
@@ -34,19 +44,19 @@ def get_config(args: Namespace = None) -> ConfigParser:
     * The config file
     * Command argument overrides, where permitted
 
-    The configuration file is only parsed if args is not None. Otherwise, a
-    stored configuration file value is returned, which is initialized to None.
+    The results of this function are memoized, so it can only be run once
+    per configuration file.
 
     Returns:
         dict -- The final configuration values.
     """
-    global CONFIG
 
-    if args:
-        CONFIG = ConfigParser()
-        CONFIG.read(args.config_file)
-    check_configured(CONFIG)
-    return CONFIG
+    if not CONFIG_HOLDER.config:
+        config = ConfigParser()
+        config.read(config_file)
+        check_configured(config)
+        CONFIG_HOLDER.config = config
+    return CONFIG_HOLDER.config
 
 
 def config_to_string(config: ConfigParser) -> str:
@@ -63,6 +73,7 @@ def config_to_string(config: ConfigParser) -> str:
     config.write(config_status)
     config_status.seek(0)
     return config_status.read()
+
 
 @memoize
 def check_configured(config: ConfigParser) -> None:
@@ -81,6 +92,5 @@ def check_configured(config: ConfigParser) -> None:
         for option in config[section]:
             value = config.get(section, option)
             if value == "CONFIGURE_ME":
-                raise ValueError("Invalid configuration {}.{}={}".format
-                                 (section, option, value))
-    return
+                raise ValueError("Invalid configuration {}.{}={}".format(
+                    section, option, value))
