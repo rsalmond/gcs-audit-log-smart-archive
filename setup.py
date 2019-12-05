@@ -48,10 +48,11 @@ setup(
         'google-cloud-bigquery',
         'google-cloud-storage',
         'python-dateutil',
+        'click',
     ],
     entry_points={
         'console_scripts': [
-            'gcs_sa = gcs_sa.__main__:main',
+            'gcs_sa = gcs_sa:main',
         ],
     },
     project_urls={},  # TODO: Reference guide

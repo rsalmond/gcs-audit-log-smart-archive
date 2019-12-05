@@ -58,8 +58,8 @@ def rewrite_object(row: Row, storage_class: str, moved_output: BigQueryOutput,
 
     if None in (bucket_name, object_name):
         LOG.error(
-            "Unable to determine bucket and object name for row with resourceName: {}. Skipping."
-            .format(row.resourceName))
+            "Unable to determine bucket and object name for row "
+            "with resourceName: %s. Skipping.", row.resourceName)
         return
 
     object_path = "/".join(["gs:/", bucket_name, object_name])
@@ -77,8 +77,8 @@ def rewrite_object(row: Row, storage_class: str, moved_output: BigQueryOutput,
                 # Get the blob info. Skip this on a dry run, as it creates
                 # an access record.
                 LOG.debug(
-                    "Getting original blob info for object {} in bucket {}.".
-                    format(object_name, bucket_name))
+                    "Getting original blob info for object %s in bucket %s.",
+                    object_name, bucket_name)
                 blob_info = bucket.get_blob(object_name)
                 current_create_time = blob_info.time_created \
                     if blob_info else None
