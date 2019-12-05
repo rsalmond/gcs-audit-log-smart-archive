@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Copyright 2019 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -42,7 +43,7 @@ LOG = logging.getLogger(__name__)
               required=False,
               help="Set log level. Overrides configuration.",
               default=None)
-def main(config_file, log_level) -> None:
+def main(config_file: str = "./default.cfg", log_level: str = None) -> None:
     """
     Smart archiver for GCS, which moves objects to storage classes based
     on access patterns to optimize for cost.
@@ -76,3 +77,7 @@ def warmup():
     find warm-up candidate objects.
     """
     return warmup_command()
+
+
+if __name__ == "__main__":
+    main()
