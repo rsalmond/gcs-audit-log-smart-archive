@@ -29,6 +29,7 @@ from gcs_sa.bq.output import BigQueryOutput
 from gcs_sa.bq.utils import get_bucket_and_object
 from gcs_sa.config import get_config
 from gcs_sa.gcs.client import get_gcs_client
+from gcs_sa.gcs.utils import check_redundant_rewrite
 
 LOG = logging.getLogger(__name__)
 
@@ -81,6 +82,12 @@ def rewrite_object(row: Row, storage_class: str, moved_output: BigQueryOutput,
                 blob_info = bucket.get_blob(object_name)
                 current_create_time = blob_info.time_created \
                     if blob_info else None
+                # While we are here and have the info, check that this rewrite
+                # isn't redundant to avoid any unwelcome fees.
+                if check_redundant_rewrite(storage_class,
+                                           blob_info.storage_class):
+                    LOG.info("Looks like %s is already in %s class. Skipping.", object_path, storage_class)
+                    break
 
             LOG.info("%s%s rewriting to: %s", "DRY RUN: " if dry_run else "",
                      object_path, storage_class)
@@ -108,7 +115,7 @@ def rewrite_object(row: Row, storage_class: str, moved_output: BigQueryOutput,
             retry_count += 1
             if retry_count >= max_retries:
                 LOG.exception(
-                    "%s failed! API error while updating storage class.")
+                    "API error while updating storage class for object {}.".format(object_path))
                 break
             retry_delay += backoff_seconds
             time.sleep(retry_delay)

@@ -58,10 +58,8 @@ def doboth_command() -> None:
         LOG.info("%s rows read.", rows_read)
         LOG.info(moved_output.stats())
         LOG.info(excluded_output.stats())
-
     register(cleanup)
 
-    rows_read = 0
     # Run query job
     job = run_query_job(compose_access_query(),
                         temp_table.get_fully_qualified_name())
