@@ -61,7 +61,6 @@ def cooldown_command() -> None:
 
     register(cleanup)
 
-    rows_read = 0
     # Run query job
     job = run_query_job(compose_cooldown_query(),
                         temp_table.get_fully_qualified_name())
@@ -74,7 +73,17 @@ def cooldown_command() -> None:
 
     workers = config.getint('RUNTIME', 'WORKERS')
     with BoundedThreadPoolExecutor(max_workers=workers) as executor:
+        # get total rows in result, report it
+        result = job.result()
+        total_rows = result.total_rows
+        percentage_reported = 0
+        LOG.info("Total rows: %s", total_rows)
         # Start all worker threads
-        for row in job.result():
+        for row in result:
             rows_read += 1
             executor.submit(archive_worker, row)
+            # calculate the percentage and show it if it's a new 10%ile
+            percentage = int(rows_read / total_rows * 100)
+            if percentage > percentage_reported and not percentage % 10:
+                LOG.info("%s%% complete.", percentage)
+                percentage_reported = percentage
