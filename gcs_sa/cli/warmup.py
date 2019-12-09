@@ -84,5 +84,5 @@ def warmup_command() -> None:
             # calculate the percentage and show it if it's a new 10%ile
             percentage = int(rows_read / total_rows * 100)
             if percentage > percentage_reported and not percentage % 10:
-                LOG.info("%s%% complete.", percentage)
+                LOG.info("%s percent complete.", percentage)
                 percentage_reported = percentage
