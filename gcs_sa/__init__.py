@@ -99,14 +99,25 @@ def warmup(context: object) -> None:
 
 
 @main.command()
+@click.option(
+    '-p',
+    '--prefix',
+    required=False,
+    help=
+    "A prefix to restrict the bucket listing(s) by. This is useful if you have"
+    "a very large bucket and want to shard the listing work.",
+    default=None)
 @click.argument('buckets', nargs=-1, required=False, default=None)
 @click.pass_context
-def catchup(context: object, buckets: [str] = None) -> None:
+def catchup(context: object, buckets: [str] = None, prefix: str = None) -> None:
     """
-    Build the catchup table with all objects in your bucket(s).
+    Build the catchup table with all objects in your bucket(s). The table will
+    be named whatever you set to the CATCHUP_TABLE value in the configuration
+    file. The table will be created if not found. If it is found, records will
+    be appended.
 
-    Optionally, provide a list of buckets (without gs://) to limit the scope
-    to. By default, all buckets in the configured project will be processed
+    Optionally, you can provide a list of buckets (without gs://) to limit the
+    scope. By default, all buckets in the configured project will be processed
     into the table.
 
     This listing of objects can be UNIONed with the access log by setting the
@@ -115,7 +126,7 @@ def catchup(context: object, buckets: [str] = None) -> None:
     access. If the object is in the access log, it will be processed as usual.
     """
     init(**context.obj)
-    return catchup_command(buckets)
+    return catchup_command(buckets, prefix)
 
 
 if __name__ == "__main__":

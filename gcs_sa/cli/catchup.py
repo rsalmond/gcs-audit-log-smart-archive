@@ -30,12 +30,16 @@ from gcs_sa.thread import BoundedThreadPoolExecutor
 LOG = logging.getLogger(__name__)
 
 
-def catchup_command(buckets: [str] = None) -> None:
+def catchup_command(buckets: [str] = None, prefix: str = None) -> None:
     """Implementation of the catchup command.
 
+    This function dispatches each bucket listed into an executor thread for
+    parallel processing of the bucket list.
+
     Keyword Arguments:
-        buckets {[type]} -- A list of buckets to use instead of the
+        buckets {[str]} -- A list of buckets to use instead of the
         project-wide bucket listing. (default: {None})
+        prefix {str} -- A prefix to use when listing. (default: {None})
     """
     config = get_config()
     gcs = get_gcs_client()
@@ -60,12 +64,13 @@ def catchup_command(buckets: [str] = None) -> None:
     with BoundedThreadPoolExecutor(max_workers=workers) as executor:
         for bucket in buckets:
             buckets_listed += 1
-            executor.submit(bucket_lister, config, gcs, bucket, buckets_listed,
-                            total_buckets, bucket_blob_counts)
+            executor.submit(bucket_lister, config, gcs, bucket, prefix,
+                            buckets_listed, total_buckets, bucket_blob_counts)
 
 
 def bucket_lister(config: ConfigParser, gcs: Client, bucket: Bucket,
-                  bucket_number: int, total_buckets: int, stats: dict) -> None:
+                  prefix: str, bucket_number: int, total_buckets: int,
+                  stats: dict) -> None:
     """List a bucket, sending each page of the listing into an executor pool
     for processing.
 
@@ -84,7 +89,7 @@ def bucket_lister(config: ConfigParser, gcs: Client, bucket: Bucket,
     # Use remaining configured workers, or at least 2, for this part
     workers = max(config.getint('RUNTIME', 'WORKERS') - 2, 2)
     with BoundedThreadPoolExecutor(max_workers=workers) as sub_executor:
-        blobs = gcs.list_blobs(bucket)
+        blobs = gcs.list_blobs(bucket, prefix=prefix)
         for page in blobs.pages:
             sub_executor.submit(page_outputter, config, bucket, page, stats)
 
