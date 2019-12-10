@@ -34,7 +34,7 @@ class BigQueryOutput():
     A queue-like output stream to a BigQuery table.
     """
 
-    def __init__(self, table: Table):
+    def __init__(self, table: Table, create_table: bool = True):
         self.config = get_config()
         self.lock = Lock()
         self.client = get_bq_client()
@@ -43,7 +43,8 @@ class BigQueryOutput():
         self.batch_size = int(
             self.config.get('BIGQUERY', 'BATCH_WRITE_SIZE', fallback=100))
         self.insert_count = 0
-        table.initialize()
+        if create_table:
+            table.initialize()
 
     def put(self, row) -> None:
         """
