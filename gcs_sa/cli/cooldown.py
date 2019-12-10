@@ -45,7 +45,7 @@ def cooldown_command() -> None:
     # Create temp table object. Doesn't need to be initialized, as the
     # query job will do that.
     temp_table = Table(
-        config.get('BIGQUERY', 'TEMP_TABLE', fallback='smart_archiver_temp'))
+        config.get('BIGQUERY', 'TEMP_TABLE', fallback='smart_archiver_temp_cooldown'))
 
     # Register cleanup as shutdown hook
     def cleanup():
