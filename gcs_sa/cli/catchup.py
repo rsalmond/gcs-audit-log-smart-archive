@@ -32,7 +32,7 @@ LOG = logging.getLogger(__name__)
 
 def catchup_command(buckets: [str] = None) -> None:
     """Implementation of the catchup command.
-    
+
     Keyword Arguments:
         buckets {[type]} -- A list of buckets to use instead of the
         project-wide bucket listing. (default: {None})
@@ -55,12 +55,38 @@ def catchup_command(buckets: [str] = None) -> None:
     buckets_listed = 0
     bucket_blob_counts = dict()
 
-    workers = max(config.getint('RUNTIME', 'WORKERS') / 2, 1)
+    # Use at most 2 workers for this part, as it won't be many
+    workers = min(config.getint('RUNTIME', 'WORKERS'), 2)
     with BoundedThreadPoolExecutor(max_workers=workers) as executor:
         for bucket in buckets:
             buckets_listed += 1
             executor.submit(bucket_lister, config, gcs, bucket, buckets_listed,
                             total_buckets, bucket_blob_counts)
+
+
+def bucket_lister(config: ConfigParser, gcs: Client, bucket: Bucket,
+                  bucket_number: int, total_buckets: int, stats: dict) -> None:
+    """List a bucket, sending each page of the listing into an executor pool
+    for processing.
+
+    Arguments:
+        config {ConfigParser} -- The program config.
+        gcs {Client} -- A GCS client object.
+        bucket {Bucket} -- A GCS Bucket object to list.
+        bucket_number {int} -- The number of this bucket (out of the total).
+        total_buckets {int} -- The total number of buckets that will be listed.
+        stats {dict} -- A dictionary of bucket_name (str): blob_count (int)
+    """
+    LOG.info("Listing %s. %s of %s total buckets", bucket.name, bucket_number,
+             total_buckets)
+    stats[bucket] = 0
+
+    # Use remaining configured workers, or at least 2, for this part
+    workers = max(config.getint('RUNTIME', 'WORKERS') - 2, 2)
+    with BoundedThreadPoolExecutor(max_workers=workers) as sub_executor:
+        blobs = gcs.list_blobs(bucket)
+        for page in blobs.pages:
+            sub_executor.submit(page_outputter, config, bucket, page, stats)
 
 
 def page_outputter(config: ConfigParser, bucket: Bucket, page: Page,
@@ -86,27 +112,3 @@ def page_outputter(config: ConfigParser, bucket: Bucket, page: Page,
     catchup_output.flush()
     stats[bucket] += blob_count
     LOG.info("%s blob records written for bucket %s.", stats[bucket], bucket)
-
-
-def bucket_lister(config: ConfigParser, gcs: Client, bucket: Bucket,
-                  bucket_number: int, total_buckets: int, stats: dict) -> None:
-    """List a bucket, sending each page of the listing into an executor pool
-    for processing.
-    
-    Arguments:
-        config {ConfigParser} -- The program config.
-        gcs {Client} -- A GCS client object.
-        bucket {Bucket} -- A GCS Bucket object to list.
-        bucket_number {int} -- The number of this bucket (out of the total).
-        total_buckets {int} -- The total number of buckets that will be listed.
-        stats {dict} -- A dictionary of bucket_name (str): blob_count (int)
-    """
-    LOG.info("Listing %s. %s of %s total buckets", bucket.name, bucket_number,
-             total_buckets)
-    stats[bucket] = 0
-
-    workers = max(config.getint('RUNTIME', 'WORKERS') / 2, 1)
-    with BoundedThreadPoolExecutor(max_workers=workers) as sub_executor:
-        blobs = gcs.list_blobs(bucket)
-        for page in blobs.pages:
-            sub_executor.submit(page_outputter, config, bucket, page, stats)
