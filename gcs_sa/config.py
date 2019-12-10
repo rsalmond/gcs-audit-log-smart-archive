@@ -36,26 +36,30 @@ class ConfigParserHolder():
 CONFIG_HOLDER = ConfigParserHolder()
 
 
-def get_config(config_file: str = None) -> ConfigParser:
-    """Get the configuration by locating a config file, and building a
-    configuration with items from these sources, in ascending priority:
+def set_config(config_file: str) -> ConfigParser:
+    """Set the configuration stored in this module.
 
-    * Program defaults
-    * The config file
-    * Command argument overrides, where permitted
-
-    The results of this function are memoized, so it can only be run once
-    per configuration file.
+    Arguments:
+        config_file {str} -- Path to the config file.
 
     Returns:
-        dict -- The final configuration values.
+        ConfigParser -- The stored parsed configuration.
     """
 
-    if not CONFIG_HOLDER.config:
-        config = ConfigParser()
-        config.read(config_file)
-        check_configured(config)
-        CONFIG_HOLDER.config = config
+    config = ConfigParser()
+    config.read(config_file)
+    check_configured(config)
+    CONFIG_HOLDER.config = config
+    return CONFIG_HOLDER.config
+
+
+def get_config() -> ConfigParser:
+    """Get the configuration stored in this module.
+
+    Returns:
+        ConfigParser -- The stored parsed configuration.
+    """
+
     return CONFIG_HOLDER.config
 
 

@@ -72,6 +72,9 @@ class Table:
             concurrent.futures.TimeoutError –- If the job did not complete
             in the default BigQuery job timeout.
         """
+        if not self.schema:
+            raise ValueError("No schema provided for table {}; writing is not supported.".format(self.short_name))
+
         bq_client = get_bq_client()
 
         LOG.info("Creating table %s if not found.",
@@ -130,16 +133,46 @@ class TableDefinitions(Enum):
         "name": "cloudaudit_googleapis_com_data_access_*",
         "schema": None
     }
+    CATCHUP_TABLE = {
+        "schema":
+            """
+                kind STRING,
+                id STRING,
+                selfLink STRING,
+                mediaLink STRING,
+                name STRING,
+                bucket STRING,
+                contentType STRING,
+                contentLanguage STRING,
+                generation INT64,
+                metageneration INT64,
+                storageClass STRING,
+                size INT64,
+                md5Hash STRING,
+                crc32c STRING,
+                etag STRING,
+                timeCreated TIMESTAMP,
+                updated TIMESTAMP,
+                timeStorageClassUpdated TIMESTAMP
+            """
+    }
 
 
-def get_table(table: TableDefinitions) -> Table:
-    """
-    Get a Table object using one of the enum definitions.
+def get_table(table: TableDefinitions, name: str = None) -> Table:
+    """    Get a Table object using one of the TableDefinitions enum
+    definitions.
 
     Arguments:
-        name {TableDefinitions} -- Enum name of the table.
+        table {TableDefinitions} -- Enum name of the table.
+
+    Keyword Arguments:
+        name {str} -- A name for the table, overriding the name set in
+        the enum value. (default: {None})
 
     Returns:
         Table -- The table object representing the table.
     """
-    return Table(**table.value)
+    kwargs = table.value
+    if name:
+        kwargs["name"] = name
+    return Table(**kwargs)
