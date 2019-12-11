@@ -111,7 +111,8 @@ def page_outputter(config: ConfigParser, bucket: Bucket, page: Page,
 
     for blob in page:
         blob_count += 1
-        metadata = blob.__dict__["_properties"]
+        # pylint: disable=protected-access
+        metadata = blob._properties
         catchup_output.put(metadata)
 
     catchup_output.flush()
