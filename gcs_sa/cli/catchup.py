@@ -61,7 +61,9 @@ def catchup_command(buckets: [str] = None, prefix: str = None) -> None:
 
     # Use at most 2 workers for this part, as it won't be many
     workers = min(config.getint('RUNTIME', 'WORKERS'), 2)
-    with BoundedThreadPoolExecutor(max_workers=workers) as executor:
+    size = int(config.getint('RUNTIME', 'WORK_QUEUE_SIZE') / 2)
+    with BoundedThreadPoolExecutor(max_workers=workers,
+                                   queue_size=size) as executor:
         for bucket in buckets:
             buckets_listed += 1
             executor.submit(bucket_lister, config, gcs, bucket, prefix,
@@ -88,7 +90,9 @@ def bucket_lister(config: ConfigParser, gcs: Client, bucket: Bucket,
 
     # Use remaining configured workers, or at least 2, for this part
     workers = max(config.getint('RUNTIME', 'WORKERS') - 2, 2)
-    with BoundedThreadPoolExecutor(max_workers=workers) as sub_executor:
+    size = int(config.getint('RUNTIME', 'WORK_QUEUE_SIZE') / 2)
+    with BoundedThreadPoolExecutor(max_workers=workers,
+                                   queue_size=size) as sub_executor:
         blobs = gcs.list_blobs(bucket, prefix=prefix)
         for page in blobs.pages:
             sub_executor.submit(page_outputter, config, bucket, page, stats)

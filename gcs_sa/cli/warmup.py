@@ -45,7 +45,9 @@ def warmup_command() -> None:
     # Create temp table object. Doesn't need to be initialized, as the
     # query job will do that.
     temp_table = Table(
-        config.get('BIGQUERY', 'TEMP_TABLE', fallback='smart_archiver_temp_warmup'))
+        config.get('BIGQUERY',
+                   'TEMP_TABLE',
+                   fallback='smart_archiver_temp_warmup'))
 
     # Register cleanup as shutdown hook
     def cleanup():
@@ -71,7 +73,9 @@ def warmup_command() -> None:
             rewrite_object(row, 'STANDARD', moved_output, excluded_output)
 
     workers = config.getint('RUNTIME', 'WORKERS')
-    with BoundedThreadPoolExecutor(max_workers=workers) as executor:
+    size = int(config.getint('RUNTIME', 'WORK_QUEUE_SIZE') / 2)
+    with BoundedThreadPoolExecutor(max_workers=workers,
+                                   queue_size=size) as executor:
         # get total rows in result, report it
         result = job.result()
         total_rows = result.total_rows

@@ -58,6 +58,7 @@ def doboth_command() -> None:
         LOG.info("%s rows read.", rows_read)
         LOG.info(moved_output.stats())
         LOG.info(excluded_output.stats())
+
     register(cleanup)
 
     # Run query job
@@ -73,7 +74,9 @@ def doboth_command() -> None:
                            excluded_output)
 
     workers = config.getint('RUNTIME', 'WORKERS')
-    with BoundedThreadPoolExecutor(max_workers=workers) as executor:
+    size = int(config.getint('RUNTIME', 'WORK_QUEUE_SIZE') / 2)
+    with BoundedThreadPoolExecutor(max_workers=workers,
+                                   queue_size=size) as executor:
         # Start all worker threads
         for row in job.result():
             rows_read += 1

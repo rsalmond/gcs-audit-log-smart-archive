@@ -22,7 +22,7 @@ class BoundedThreadPoolExecutor(ThreadPoolExecutor):
     """A wrapper around concurrent.futures.thread.py to add a bounded
     queue to ThreadPoolExecutor.
     """
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, queue_size: int = 1000, **kwargs):
         """Construct a slightly modified ThreadPoolExecutor with a 
         bounded queue for work. Causes submit() to block when full.
 
@@ -30,4 +30,4 @@ class BoundedThreadPoolExecutor(ThreadPoolExecutor):
             ThreadPoolExecutor {[type]} -- [description]
         """
         super().__init__(*args, **kwargs)
-        self._work_queue = Queue(1000)
+        self._work_queue = Queue(queue_size)
