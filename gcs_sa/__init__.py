@@ -21,9 +21,7 @@ import click
 
 from gcs_sa.config import config_to_string, set_config
 from gcs_sa.utils import set_program_log_level
-from gcs_sa.cli.catchup import catchup_command
 from gcs_sa.cli.cooldown import cooldown_command
-from gcs_sa.cli.doboth import doboth_command
 from gcs_sa.cli.warmup import warmup_command
 
 warnings.filterwarnings(
@@ -79,16 +77,6 @@ def cooldown(context: object) -> None:
 
 @main.command()
 @click.pass_context
-def doboth(context: object) -> None:
-    """
-    Process both warm-up and cool-down evaluations for all objects.
-    """
-    init(**context.obj)
-    return doboth_command()
-
-
-@main.command()
-@click.pass_context
 def warmup(context: object) -> None:
     """
     Process warm-up evaluations. A query will be done to only
@@ -96,37 +84,6 @@ def warmup(context: object) -> None:
     """
     init(**context.obj)
     return warmup_command()
-
-
-@main.command()
-@click.option(
-    '-p',
-    '--prefix',
-    required=False,
-    help=
-    "A prefix to restrict the bucket listing(s) by. This is useful if you have"
-    "a very large bucket and want to shard the listing work.",
-    default=None)
-@click.argument('buckets', nargs=-1, required=False, default=None)
-@click.pass_context
-def catchup(context: object, buckets: [str] = None, prefix: str = None) -> None:
-    """
-    Build the catchup table with all objects in your bucket(s). The table will
-    be named whatever you set to the CATCHUP_TABLE value in the configuration
-    file. The table will be created if not found. If it is found, records will
-    be appended.
-
-    Optionally, you can provide a list of buckets (without gs://) to limit the
-    scope. By default, all buckets in the configured project will be processed
-    into the table.
-
-    This listing of objects can be UNIONed with the access log by setting the
-    CATCHUP_TABLE value in the configuration file. If an object
-    is only in the catchup table, its create date will be treated as last
-    access. If the object is in the access log, it will be processed as usual.
-    """
-    init(**context.obj)
-    return catchup_command(buckets, prefix)
 
 
 if __name__ == "__main__":
