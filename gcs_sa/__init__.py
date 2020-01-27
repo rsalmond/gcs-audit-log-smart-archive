@@ -95,8 +95,7 @@ def warmup(context: object) -> None:
               is_flag=True)
 def install(context: object, yes: bool = False) -> None:
     """
-    Process warm-up evaluations. A query will be done to only
-    find warm-up candidate objects.
+    Enable IAM audit logging and a BQ sink for those logs. Installation takes seconds, and is idempotent (existing resources that meet the requirements will be used).
     """
     init(**context.obj)
     return install_command(yes)
