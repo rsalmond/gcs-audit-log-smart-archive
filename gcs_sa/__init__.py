@@ -22,6 +22,7 @@ import click
 from gcs_sa.config import config_to_string, set_config
 from gcs_sa.utils import set_program_log_level
 from gcs_sa.cli.cooldown import cooldown_command
+from gcs_sa.cli.install import install_command
 from gcs_sa.cli.warmup import warmup_command
 
 warnings.filterwarnings(
@@ -84,6 +85,21 @@ def warmup(context: object) -> None:
     """
     init(**context.obj)
     return warmup_command()
+
+
+@main.command()
+@click.pass_context
+@click.option("-y",
+              "--yes",
+              help="Agree to everything, no interactivity.",
+              is_flag=True)
+def install(context: object, yes: bool = False) -> None:
+    """
+    Process warm-up evaluations. A query will be done to only
+    find warm-up candidate objects.
+    """
+    init(**context.obj)
+    return install_command(yes)
 
 
 if __name__ == "__main__":
