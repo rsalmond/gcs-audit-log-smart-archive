@@ -131,6 +131,10 @@ def compose_access_query() -> str:
     Returns:
         str -- The query text.
     """
+
+    config = get_config()
+    svc_email_address = config.get("GCP", "SVC_ACCOUNT")
+
     access_log = get_table(TableDefinitions.DATA_ACCESS_LOGS)
     moved_objects = get_table(TableDefinitions.OBJECTS_MOVED)
     excluded_objects = get_table(TableDefinitions.OBJECTS_EXCLUDED)
@@ -160,13 +164,16 @@ def compose_access_query() -> str:
     SELECT
         REGEXP_REPLACE(protopayload_auditlog.resourceName, "gs://.*/", "") AS resourceName,
         timestamp
-    FROM `{0}`
+    FROM `{fqn}`
     WHERE
-        _TABLE_SUFFIX BETWEEN FORMAT_DATE("%Y%m%d", DATE_SUB(CURRENT_DATE(), INTERVAL {1} DAY))
+        _TABLE_SUFFIX BETWEEN FORMAT_DATE("%Y%m%d", DATE_SUB(CURRENT_DATE(), INTERVAL {day_partitions} DAY))
         AND FORMAT_DATE("%Y%m%d", CURRENT_DATE())
-    {2}
-    """.format(access_log.get_fully_qualified_name(),
-               _calculate_day_partitions(), _compose_catch_up_union())
+        AND protopayload_auditlog.authenticationInfo.principalEmail != "{svc_email_address}"
+    {catchup_union}
+    """.format(fqn=access_log.get_fully_qualified_name(),
+               day_partitions=_calculate_day_partitions(),
+               svc_email_address=svc_email_address,
+               catchup_union=_compose_catch_up_union())
 
     # Aggregate the raw access records, in order to calculate most
     # recent access (coldness) as well as the count of accesses within a
